@@ -1,0 +1,112 @@
+# Каркас обучения. Меняйте контент и вопросы здесь — код трогать не нужно.
+# type: content -> видео или скрипт с кнопкой "я посмотрел/изучил" (опционально + quiz)
+# type: confirm -> вопрос да/нет
+# type: quiz    -> отдельный блок вопросов (не привязан к конкретному видео/скрипту)
+
+steps:
+  - id: video_1
+    type: content
+    kind: video
+    title: "Видео 1: Презентация работы"
+    file_id: ""
+    url: "https://rutube.ru/video/private/6cce49b49e26921a75d62977dc8b85dc/?p=AilF69vzwXpunE94xyCGRQ"
+    confirm_button: "✅ Я посмотрел"
+    quiz:
+      pass_rule: all_correct
+      questions:
+        - question: "В чём заключается работа удалённого агента?"
+          options:
+            - "Искать арендаторов через объявления и показывать им квартиры"
+            - "Обзванивать собственников по готовой базе и договариваться с ними о том, чтобы они работали именно с нашим агентством"
+            - "Самостоятельно искать номера собственников в интернете"
+            - "Фотографировать квартиры и оформлять договоры аренды"
+          correct_index: 1
+
+  - id: video_2
+    type: content
+    kind: video
+    title: "Видео 2: Мини-курс"
+    file_id: ""
+    url: "https://rutube.ru/video/private/bab64da5c3715fb66f68f338eec84552/?p=51jnPvjfHn4nyZr0ORWAAA"
+    confirm_button: "✅ Я посмотрел"
+    quiz:
+      pass_rule: all_correct
+      questions:
+        - question: "Где заканчивается ответственность удалённого агента?"
+          options:
+            - "После того как арендатор заселился в квартиру"
+            - "После подписания договора аренды с арендатором"
+            - "После того как договорился с собственником и грамотно передал его коллеге"
+            - "Ответственность не заканчивается — агент сам ведёт сделку до конца"
+          correct_index: 2
+
+  - id: script_1
+    type: content
+    kind: reading
+    title: "Скрипт короткий"
+    file_id: "BQACAgIAAxkDAANQapUVD-SXdl7_FdVOoqN9ECrUu-MAApmgAAI_UqhIL1Ym1EkbOY49BA"
+    confirm_button: "Я ознакомился"
+    quiz: null   # тест по всем 4 скриптам общий, идёт отдельным шагом ниже
+
+  - id: script_2
+    type: content
+    kind: reading
+    title: "Скрипт развёрнутый"
+    file_id: "BQACAgIAAxkDAANRapUVEBTRYBmIfNB_d2G1BZgknkYAApqgAAI_UqhINakyEeeJwFg9BA"
+    confirm_button: "Я ознакомился"
+    quiz: null
+
+  - id: script_3
+    type: content
+    kind: reading
+    title: "Почему собственники отказывают"
+    file_id: "BQACAgIAAxkDAANSapUVENYN4RNStDAOVwGRmZX9OkMAApugAAI_UqhIc0D7xX8uF5g9BA"
+    confirm_button: "Я ознакомился"
+    quiz: null
+
+  - id: script_4
+    type: content
+    kind: reading
+    title: "Косвенные возражения"
+    file_id: "BQACAgIAAxkDAANTapUVIuMIqt784K2tZeP1fN3aldsAApygAAI_UqhIy4a0Q5-NVYY9BA"
+    confirm_button: "Я ознакомился"
+    quiz: null
+
+  - id: scripts_quiz
+    type: quiz
+    min_correct: 3   # из 4 — поменяйте на pass_rule: all_correct, если нужны все верно
+    questions:
+      - question: "TODO: вопрос по скрипту/возражению 1?"
+        options: ["Ответ А", "Ответ Б", "Ответ В"]
+        correct_index: 1
+      - question: "TODO: вопрос по скрипту/возражению 2?"
+        options: ["Ответ А", "Ответ Б", "Ответ В"]
+        correct_index: 0
+      - question: "TODO: вопрос по скрипту/возражению 3?"
+        options: ["Ответ А", "Ответ Б", "Ответ В"]
+        correct_index: 2
+      - question: "TODO: вопрос по скрипту/возражению 4?"
+        options: ["Ответ А", "Ответ Б", "Ответ В"]
+        correct_index: 1
+
+  - id: ready_check
+    type: confirm
+    title: "Вы уверены, что готовы приступать к звонкам?"
+    yes_button: "Да, я готов(а) приступать"
+    no_button: "Пройти обучение заново"
+    on_no: restart   # при "нет" сбрасывает прогресс и начинает с video_1
+
+# Что происходит после ready_check -> "да"
+admission:
+  chats:
+    - name: "Канал"
+      link: "https://t.me/AMonline13"
+      chat_id: -1004470495286
+    - name: "Рабочий чат"
+      link: "https://t.me/+HYqePV7QAbkzNTBi"
+      chat_id: 0   # TODO: бот пришлёт сам, когда его добавят в этот чат
+    - name: "База (собственники)"
+      link: "https://t.me/+8dvixLhSVlUwNWYy"
+      chat_id: 0   # TODO: бот пришлёт сам, когда его добавят в этот чат
+  admin_chat_id: 514608148
+  rashid_contact: "@rassh1337 / +79247698050"

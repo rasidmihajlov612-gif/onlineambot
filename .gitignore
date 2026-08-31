@@ -1,0 +1,6 @@
+.env
+candidates.db
+__pycache__/
+*.pyc
+.venv/
+.idea/
