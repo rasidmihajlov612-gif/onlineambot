@@ -85,18 +85,25 @@ async def send_step(bot: Bot, chat_id: int, user_id: int, step_id: str):
         await send_quiz_question(bot, chat_id, step_id, 0)
 
 
+_OPTION_LETTERS = "АБВГДЕЖ"
+
+
 async def send_quiz_question(bot: Bot, chat_id: int, step_id: str, q_index: int):
     step = get_step(step_id)
     questions = _questions_of(step)
     q = questions[q_index]
     text = q.get("question") or q.get("objection")
-    buttons = [
-        [InlineKeyboardButton(text=opt, callback_data=f"quiz_answer:{step_id}:{q_index}:{i}")]
-        for i, opt in enumerate(q["options"])
-    ]
+    options = q["options"]
+    # Long option text doesn't fit well on inline buttons, so the full options
+    # go in the message text and buttons only carry the letter.
+    options_text = "\n".join(f"{_OPTION_LETTERS[i]}) {opt}" for i, opt in enumerate(options))
+    buttons = [[
+        InlineKeyboardButton(text=_OPTION_LETTERS[i], callback_data=f"quiz_answer:{step_id}:{q_index}:{i}")
+        for i in range(len(options))
+    ]]
     await bot.send_message(
         chat_id,
-        f"❓ Вопрос {q_index + 1}/{len(questions)}\n\n{text}",
+        f"❓ Вопрос {q_index + 1}/{len(questions)}\n\n{text}\n\n{options_text}",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
 
@@ -115,6 +122,11 @@ async def finish_admission(bot: Bot, chat_id: int, user_id: int):
 
     lines = []
     for chat in ADMISSION["chats"]:
+        if chat.get("public"):
+            # Публичный канал — обычная ссылка, одноразовая не нужна и не требует
+            # от бота права "Invite users via link" именно в этом чате.
+            lines.append(f"• {chat['name']}: {chat['link']}")
+            continue
         try:
             link = await bot.create_chat_invite_link(
                 chat_id=chat["chat_id"], member_limit=1, name=f"candidate_{user_id}"

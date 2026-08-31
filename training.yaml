@@ -114,6 +114,7 @@ admission:
     - name: "Канал"
       link: "https://t.me/AMonline13"
       chat_id: -1004470495286
+      public: true   # публичный канал — отдаём прямую ссылку, не создаём одноразовую
     - name: "Рабочий чат"
       link: "https://t.me/+HYqePV7QAbkzNTBi"
       chat_id: -1004304233785
