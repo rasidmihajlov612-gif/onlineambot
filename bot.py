@@ -187,6 +187,7 @@ async def on_bot_added_to_chat(event: ChatMemberUpdated):
     old_status = event.old_chat_member.status
     new_status = event.new_chat_member.status
     if old_status in ("left", "kicked") and new_status in ("member", "administrator"):
+        logging.info("Bot added to chat %r, chat_id=%s", event.chat.title, event.chat.id)
         await event.bot.send_message(
             ADMISSION["admin_chat_id"],
             f"🤖 Бота добавили в чат «{event.chat.title}»\n"
