@@ -139,7 +139,7 @@ async def finish_admission(bot: Bot, chat_id: int, user_id: int):
         chat_id,
         "🎉 Поздравляем! Вы прошли обучение и готовы приступать к звонкам.\n\n"
         "Вступите в чаты:\n" + "\n".join(lines) + "\n\n"
-        f"По всем вопросам пишите/звоните: {ADMISSION['rashid_contact']}",
+        f"По всем вопросам:\n{ADMISSION['rashid_contact']}",
     )
 
     await bot.send_message(
