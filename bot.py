@@ -218,6 +218,26 @@ async def cmd_ready(message: Message):
     await send_step(message.bot, message.chat.id, message.from_user.id, cand["current_step"])
 
 
+@router.message(Command("candidates"))
+async def cmd_candidates(message: Message):
+    if message.from_user.id != ADMISSION["admin_chat_id"]:
+        return
+
+    passed = db.list_candidates(status="passed")
+    if not passed:
+        await message.answer("Пока никто не прошёл обучение.")
+        return
+
+    lines = [f"✅ Прошли обучение ({len(passed)}):\n"]
+    for i, cand in enumerate(passed, 1):
+        username = f"@{cand['username']}" if cand["username"] else "(без username)"
+        lines.append(f"{i}. {cand['full_name']} {username} — {cand['updated_at']} UTC")
+
+    text = "\n".join(lines)
+    for start in range(0, len(text), 3500):
+        await message.answer(text[start:start + 3500])
+
+
 @router.callback_query(F.data == "training_start")
 async def on_training_start(callback: CallbackQuery):
     await callback.answer()

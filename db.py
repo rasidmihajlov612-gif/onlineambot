@@ -57,6 +57,17 @@ def update_candidate(user_id, **fields):
         conn.execute(f"UPDATE candidates SET {set_clause} WHERE user_id = ?", values)
 
 
+def list_candidates(status=None):
+    with _connect() as conn:
+        if status:
+            rows = conn.execute(
+                "SELECT * FROM candidates WHERE status = ? ORDER BY updated_at DESC", (status,)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM candidates ORDER BY updated_at DESC").fetchall()
+        return [dict(row) for row in rows]
+
+
 def save_quiz_result(user_id, step_id, correct, total):
     cand = get_candidate(user_id)
     results = json.loads(cand["quiz_results"]) if cand and cand["quiz_results"] else {}
