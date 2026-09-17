@@ -218,7 +218,7 @@ async def cmd_ready(message: Message):
     await send_step(message.bot, message.chat.id, message.from_user.id, cand["current_step"])
 
 
-@router.message(Command("candidates"))
+@router.message(Command("who"))
 async def cmd_candidates(message: Message):
     if message.from_user.id != ADMISSION["admin_chat_id"]:
         return
