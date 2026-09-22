@@ -286,27 +286,20 @@ async def cmd_kick(message: Message):
 
 
 @router.message(Command("unkick"))
-async def cmd_unkick(message: Message):
-    if message.from_user.id != ADMISSION["admin_chat_id"]:
-        return
-
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2 or not parts[1].strip().isdigit():
-        await message.answer("Использование: /unkick <id> — id есть в сообщении об удалении.")
-        return
-
-    user_id = int(parts[1].strip())
+async def restore_agent(bot: Bot, user_id: int):
+    """Возвращает удалённого агента в статус passed + шлёт ему новые
+    инвайты. Возвращает карточку кандидата или None, если восстанавливать
+    было некого (не найден / не в статусе removed)."""
     cand = db.get_candidate(user_id)
     if not cand or cand["status"] != "removed":
-        await message.answer("Не нашёл такого удалённого агента — проверьте id.")
-        return
+        return None
 
     db.update_candidate(user_id, status="passed")
     db.touch_active(user_id)
 
-    links_text = await build_invite_links(message.bot, user_id)
+    links_text = await build_invite_links(bot, user_id)
     try:
-        await message.bot.send_message(
+        await bot.send_message(
             user_id,
             "Вас восстановили в команде! 🎉\n\nВступите в чаты заново:\n" + links_text + "\n\n"
             f"По всем вопросам:\n{ADMISSION['rashid_contact']}",
@@ -314,8 +307,54 @@ async def cmd_unkick(message: Message):
     except Exception:
         logging.exception("Failed to notify %s about unkick", user_id)
 
+    return cand
+
+
+@router.message(Command("unkick"))
+async def cmd_unkick(message: Message):
+    if message.from_user.id != ADMISSION["admin_chat_id"]:
+        return
+
+    parts = message.text.split(maxsplit=1)
+    if len(parts) >= 2 and parts[1].strip().isdigit():
+        user_id = int(parts[1].strip())
+        cand = await restore_agent(message.bot, user_id)
+        if not cand:
+            await message.answer("Не нашёл такого удалённого агента — проверьте id.")
+            return
+        username = f"@{cand['username']}" if cand["username"] else "(без username)"
+        await message.answer(f"✅ Восстановлен: {cand['full_name']} {username} (id {user_id})")
+        return
+
+    removed = db.list_candidates(status="removed")
+    if not removed:
+        await message.answer("Нет удалённых агентов.")
+        return
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"{c['full_name']} (@{c['username']})" if c["username"] else c["full_name"],
+            callback_data=f"unkick_pick:{c['user_id']}",
+        )]
+        for c in removed
+    ])
+    await message.answer("Кого восстановить?", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("unkick_pick:"))
+async def on_unkick_pick(callback: CallbackQuery):
+    if callback.from_user.id != ADMISSION["admin_chat_id"]:
+        await callback.answer("Недоступно", show_alert=True)
+        return
+    user_id = int(callback.data.split(":", 1)[1])
+    cand = await restore_agent(callback.bot, user_id)
+    await callback.message.edit_reply_markup(reply_markup=None)
+    if not cand:
+        await callback.answer("Уже не найден", show_alert=True)
+        return
+    await callback.answer("Восстановлен")
     username = f"@{cand['username']}" if cand["username"] else "(без username)"
-    await message.answer(f"✅ Восстановлен: {cand['full_name']} {username} (id {user_id})")
+    await callback.message.answer(f"✅ Восстановлен: {cand['full_name']} {username} (id {user_id})")
 
 
 @router.message(Command("kv"))
