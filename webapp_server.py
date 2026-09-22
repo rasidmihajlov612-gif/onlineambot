@@ -56,6 +56,7 @@ async def handle_config(request):
         "support_info": WEBAPP.get("support_info", ""),
         "contact": ADMISSION.get("rashid_contact", ""),
         "extra_videos": WEBAPP.get("extra_videos", []),
+        "self_study": WEBAPP.get("self_study", {}),
     })
 
 
