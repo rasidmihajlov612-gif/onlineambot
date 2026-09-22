@@ -2,20 +2,13 @@ const tg = window.Telegram && window.Telegram.WebApp;
 if (tg) {
   tg.ready();
   tg.expand();
-  applyTheme();
-  tg.onEvent('themeChanged', applyTheme);
-}
-
-function applyTheme() {
-  const p = tg.themeParams || {};
-  const root = document.documentElement.style;
-  if (p.bg_color) root.setProperty('--bg', p.bg_color);
-  if (p.secondary_bg_color) root.setProperty('--secondary-bg', p.secondary_bg_color);
-  if (p.text_color) root.setProperty('--text', p.text_color);
-  if (p.hint_color) root.setProperty('--hint', p.hint_color);
-  if (p.link_color) root.setProperty('--link', p.link_color);
-  if (p.button_color) root.setProperty('--button', p.button_color);
-  if (p.button_text_color) root.setProperty('--button-text', p.button_text_color);
+  // Мини-апп всегда тёмный (фирменный стиль агентства), не подстраивается
+  // под системную тему пользователя — поэтому красим и нативную шапку/фон
+  // Telegram под тот же цвет, чтобы не было белой рамки вокруг страницы.
+  try {
+    tg.setHeaderColor('#0b0b0d');
+    tg.setBackgroundColor('#0b0b0d');
+  } catch (e) { /* старый клиент Telegram — не критично */ }
 }
 
 function initData() {
@@ -66,15 +59,17 @@ async function renderTraining(root) {
       <button class="btn-primary" id="go-chat-btn">Начать обучение в чате</button>
     </div>
   `;
-  document.getElementById('go-chat-btn').onclick = () => {
-    if (!tg) return;
-    // sendData закрывает мини-апп сам и присылает боту сообщение с этим payload
-    // (обрабатывается в on_webapp_data в bot.py). tg.close() ниже — подстраховка
-    // на случай, если sendData недоступен в текущем контексте запуска.
+  const btn = document.getElementById('go-chat-btn');
+  btn.onclick = async () => {
+    btn.disabled = true;
     try {
-      tg.sendData(JSON.stringify({ action: 'start_training' }));
-    } catch (e) { /* контекст запуска не поддерживает sendData — просто закрываем */ }
-    tg.close();
+      await fetch('/api/start-training', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData: initData() }),
+      });
+    } catch (e) { /* best effort — бот всё равно доступен по /start в чате */ }
+    if (tg) tg.close();
   };
 }
 

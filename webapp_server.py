@@ -108,13 +108,22 @@ async def handle_submit_object(request):
     return web.json_response({"ok": True, "id": object_id})
 
 
-def create_app(bot, bot_token: str) -> web.Application:
+async def handle_start_training(request):
+    body = await request.json()
+    user = _authenticate(request, body)
+    await request.app["start_training_cb"](user)
+    return web.json_response({"ok": True})
+
+
+def create_app(bot, bot_token: str, start_training_cb) -> web.Application:
     app = web.Application()
     app["bot"] = bot
     app["bot_token"] = bot_token
+    app["start_training_cb"] = start_training_cb
     app.router.add_get("/", handle_index)
     app.router.add_get("/api/config", handle_config)
     app.router.add_get("/api/counts", handle_counts)
     app.router.add_post("/api/submit-object", handle_submit_object)
+    app.router.add_post("/api/start-training", handle_start_training)
     app.router.add_static("/static/", WEBAPP_DIR / "static")
     return app

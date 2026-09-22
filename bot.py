@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import os
 import socket
@@ -113,6 +112,13 @@ async def send_quiz_question(bot: Bot, chat_id: int, step_id: str, q_index: int)
     )
 
 
+async def start_training(bot: Bot, user_id: int, username: str = None, full_name: str = None):
+    # chat_id == user_id for a private chat with the bot
+    db.create_candidate(user_id, username, full_name)
+    db.update_candidate(user_id, current_step="new", quiz_question_index=-1, quiz_correct_count=0)
+    await send_step(bot, user_id, user_id, first_step_id())
+
+
 async def advance(bot: Bot, chat_id: int, user_id: int, step_id: str):
     nxt = next_step_id(step_id)
     if nxt is None:
@@ -182,16 +188,6 @@ async def cmd_start(message: Message):
         "Этот бот — твой импровизированный офис. Тут ты найдёшь всё, что нужно 👇",
         reply_markup=kb,
     )
-
-
-@router.message(F.web_app_data)
-async def on_webapp_data(message: Message):
-    try:
-        payload = json.loads(message.web_app_data.data)
-    except (ValueError, AttributeError):
-        return
-    if payload.get("action") == "start_training":
-        await send_step(message.bot, message.chat.id, message.from_user.id, first_step_id())
 
 
 @router.message(F.video)
@@ -380,7 +376,10 @@ async def main():
         await bot.set_chat_menu_button(
             menu_button=MenuButtonWebApp(text="Меню", web_app=WebAppInfo(url=webapp_url))
         )
-        app = webapp_server.create_app(bot, bot_token)
+        async def start_training_cb(user):
+            await start_training(bot, user["id"], user.get("username"), user.get("first_name"))
+
+        app = webapp_server.create_app(bot, bot_token, start_training_cb)
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, "127.0.0.1", 8080)
