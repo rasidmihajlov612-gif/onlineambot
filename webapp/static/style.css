@@ -381,6 +381,13 @@ html, body {
   margin-right: 8px;
 }
 
+.finance-amount {
+  font-family: 'Unbounded', sans-serif;
+  font-size: 40px;
+  font-weight: 900;
+  margin-top: 4px;
+}
+
 .close-hint {
   text-align: center;
   color: var(--hint);

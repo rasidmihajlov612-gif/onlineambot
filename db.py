@@ -49,6 +49,23 @@ def init_db():
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Реестр начислений агентам. Одна строка = одно событие ("объект
+        # принят в работу" / "объект сдан"). paid_at NULL — ещё не
+        # выплачено, попадает в "ближайшую выплату" агента. Отдельные
+        # строки на "принята"/"сдана" — так объект, принятый на одной
+        # неделе и сданный на следующей, корректно приносит деньги дважды
+        # в разные выплаты, без задвоения и без сложной логики на objects.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_user_id INTEGER NOT NULL,
+                object_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                paid_at TEXT
+            )
+        """)
 
         # Миграция: добавляем колонки для трекинга активности агентов, если
         # их ещё нет (для баз, созданных до этой фичи).
@@ -207,3 +224,64 @@ def soft_remove_candidate(user_id):
     мог найти и восстановить агента (имя, история тестов и т.д. не теряются)."""
     with _connect() as conn:
         conn.execute("UPDATE candidates SET status = 'removed' WHERE user_id = ?", (user_id,))
+
+
+def add_payment(agent_user_id, object_id, kind, amount):
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO payments (agent_user_id, object_id, kind, amount) VALUES (?, ?, ?, ?)",
+            (agent_user_id, object_id, kind, amount),
+        )
+
+
+def get_unpaid_total(agent_user_id):
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM payments "
+            "WHERE agent_user_id = ? AND paid_at IS NULL",
+            (agent_user_id,),
+        ).fetchone()
+        return row["total"]
+
+
+def list_agents_with_in_progress():
+    """Агенты, у которых есть объекты в статусе in_progress — список для /kv.
+    У каждой строки есть in_progress_count и unpaid_total."""
+    with _connect() as conn:
+        rows = conn.execute("""
+            SELECT c.user_id, c.username, c.full_name,
+                   (SELECT COUNT(*) FROM objects o
+                     WHERE o.agent_user_id = c.user_id AND o.status = 'in_progress') AS in_progress_count,
+                   (SELECT COALESCE(SUM(amount), 0) FROM payments p
+                     WHERE p.agent_user_id = c.user_id AND p.paid_at IS NULL) AS unpaid_total
+            FROM candidates c
+            WHERE EXISTS (
+                SELECT 1 FROM objects o
+                WHERE o.agent_user_id = c.user_id AND o.status = 'in_progress'
+            )
+            ORDER BY c.full_name
+        """).fetchall()
+        return [dict(row) for row in rows]
+
+
+def list_objects_for_agent(agent_user_id, status):
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM objects WHERE agent_user_id = ? AND status = ? ORDER BY created_at",
+            (agent_user_id, status),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def mark_agent_paid(agent_user_id):
+    """Помечает все неоплаченные начисления агента выплаченными. Возвращает
+    выплаченную сумму (0, если платить было нечего)."""
+    total = get_unpaid_total(agent_user_id)
+    if total:
+        with _connect() as conn:
+            conn.execute(
+                "UPDATE payments SET paid_at = CURRENT_TIMESTAMP "
+                "WHERE agent_user_id = ? AND paid_at IS NULL",
+                (agent_user_id,),
+            )
+    return total

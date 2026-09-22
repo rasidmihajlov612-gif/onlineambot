@@ -13,6 +13,7 @@ WEBAPP = _config.get("webapp", {})
 ACTIVITY = _config.get("activity", {
     "inactive_after_days": 7, "grace_period_days": 2, "check_interval_hours": 6,
 })
+PAYMENTS = _config.get("payments", {"accepted_rate": 500, "closed_rate": 2000})
 
 _step_by_id = {s["id"]: s for s in STEPS}
 _step_ids = [s["id"] for s in STEPS]

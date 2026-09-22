@@ -88,6 +88,11 @@ async def handle_progress(request):
     })
 
 
+async def handle_finances(request):
+    user = _authenticate(request)
+    return web.json_response({"upcoming": db.get_unpaid_total(user["id"])})
+
+
 async def handle_counts(request):
     user = _authenticate(request)
     counts = db.count_objects_by_status(user["id"])
@@ -161,6 +166,7 @@ def create_app(bot, bot_token: str, start_training_cb) -> web.Application:
     app.router.add_get("/", handle_index)
     app.router.add_get("/api/config", handle_config)
     app.router.add_get("/api/counts", handle_counts)
+    app.router.add_get("/api/finances", handle_finances)
     app.router.add_get("/api/progress", handle_progress)
     app.router.add_post("/api/submit-object", handle_submit_object)
     app.router.add_post("/api/start-training", handle_start_training)

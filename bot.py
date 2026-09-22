@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 
 import db
 import webapp_server
-from config_loader import ACTIVITY, ADMISSION, first_step_id, get_step, next_step_id
+from config_loader import ACTIVITY, ADMISSION, PAYMENTS, first_step_id, get_step, next_step_id
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -318,6 +318,84 @@ async def cmd_unkick(message: Message):
     await message.answer(f"✅ Восстановлен: {cand['full_name']} {username} (id {user_id})")
 
 
+@router.message(Command("kv"))
+async def cmd_kv(message: Message):
+    if message.from_user.id != ADMISSION["admin_chat_id"]:
+        return
+
+    agents = db.list_agents_with_in_progress()
+    if not agents:
+        await message.answer("Нет объектов в работе ни у одного агента.")
+        return
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"{a['full_name']} — {a['in_progress_count']} в работе, к выплате {a['unpaid_total']}₽",
+            callback_data=f"kv_agent:{a['user_id']}",
+        )]
+        for a in agents
+    ])
+    await message.answer("Выберите агента:", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("kv_agent:"))
+async def on_kv_agent(callback: CallbackQuery):
+    if callback.from_user.id != ADMISSION["admin_chat_id"]:
+        await callback.answer("Недоступно", show_alert=True)
+        return
+    agent_id = int(callback.data.split(":", 1)[1])
+    await callback.answer()
+
+    cand = db.get_candidate(agent_id)
+    name = cand["full_name"] if cand else str(agent_id)
+    objects = db.list_objects_for_agent(agent_id, "in_progress")
+
+    if objects:
+        await callback.message.answer(f"🏠 Объекты в работе — {name}:")
+        for obj in objects:
+            text = (
+                f"{obj['address']}\n"
+                f"Собственник: {obj['owner_name']} · {obj['owner_phone'] or '—'}\n"
+                f"Цена: {obj['price'] or '—'}"
+            )
+            await callback.message.answer(text, reply_markup=in_progress_object_keyboard(obj["id"]))
+    else:
+        await callback.message.answer(f"У {name} сейчас нет объектов в работе.")
+
+    unpaid = db.get_unpaid_total(agent_id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=f"💰 Отметить выплаченным ({unpaid}₽)", callback_data=f"kv_paid:{agent_id}"),
+    ]])
+    await callback.message.answer(f"К выплате: {unpaid}₽", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("kv_paid:"))
+async def on_kv_paid(callback: CallbackQuery):
+    if callback.from_user.id != ADMISSION["admin_chat_id"]:
+        await callback.answer("Недоступно", show_alert=True)
+        return
+    agent_id = int(callback.data.split(":", 1)[1])
+    amount = db.mark_agent_paid(agent_id)
+    await callback.answer("Отмечено")
+    await callback.message.edit_reply_markup(reply_markup=None)
+    if amount:
+        try:
+            await callback.bot.send_message(agent_id, f"💰 Вам выплачено {amount}₽.")
+        except Exception:
+            logging.exception("Failed to notify %s about payment", agent_id)
+        await callback.message.answer(f"✅ Выплата {amount}₽ отмечена.")
+    else:
+        await callback.message.answer("Платить было нечего (уже 0₽).")
+
+
+def in_progress_object_keyboard(object_id: int) -> InlineKeyboardMarkup:
+    """Кнопки для объекта в работе — доступны и сразу после приёмки, и из /kv."""
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Сдано", callback_data=f"obj_close:{object_id}"),
+        InlineKeyboardButton(text="❌ Слетела", callback_data=f"obj_fail:{object_id}"),
+    ]])
+
+
 @router.callback_query(F.data.startswith("obj_approve:"))
 async def on_object_approve(callback: CallbackQuery):
     if callback.from_user.id != ADMISSION["admin_chat_id"]:
@@ -326,16 +404,15 @@ async def on_object_approve(callback: CallbackQuery):
     object_id = int(callback.data.split(":", 1)[1])
     db.update_object_status(object_id, "in_progress")
     obj = db.get_object(object_id)
+    if obj:
+        db.add_payment(obj["agent_user_id"], object_id, "accepted", PAYMENTS["accepted_rate"])
     await callback.answer("Принято в работу")
-    # Оставляем одну кнопку — вдруг сделка позже сорвётся, тогда куратор
-    # отмечает это тут же, не разыскивая объект отдельно.
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="⚠️ Сорвалось", callback_data=f"obj_fail:{object_id}"),
-    ]])
-    await callback.message.edit_reply_markup(reply_markup=kb)
+    await callback.message.edit_reply_markup(reply_markup=in_progress_object_keyboard(object_id))
     if obj:
         await callback.bot.send_message(
-            obj["agent_user_id"], f"✅ Объект «{obj['address']}» принят в работу."
+            obj["agent_user_id"],
+            f"✅ Объект «{obj['address']}» принят в работу.\n"
+            f"Начислено {PAYMENTS['accepted_rate']}₽ к ближайшей выплате.",
         )
 
 
@@ -355,6 +432,26 @@ async def on_object_reject(callback: CallbackQuery):
         )
 
 
+@router.callback_query(F.data.startswith("obj_close:"))
+async def on_object_close(callback: CallbackQuery):
+    if callback.from_user.id != ADMISSION["admin_chat_id"]:
+        await callback.answer("Недоступно", show_alert=True)
+        return
+    object_id = int(callback.data.split(":", 1)[1])
+    db.update_object_status(object_id, "closed")
+    obj = db.get_object(object_id)
+    if obj:
+        db.add_payment(obj["agent_user_id"], object_id, "closed", PAYMENTS["closed_rate"])
+    await callback.answer("Отмечено как сдано")
+    await callback.message.edit_reply_markup(reply_markup=None)
+    if obj:
+        await callback.bot.send_message(
+            obj["agent_user_id"],
+            f"🎉 Объект «{obj['address']}» сдан!\n"
+            f"Начислено ещё {PAYMENTS['closed_rate']}₽ к ближайшей выплате.",
+        )
+
+
 @router.callback_query(F.data.startswith("obj_fail:"))
 async def on_object_fail(callback: CallbackQuery):
     if callback.from_user.id != ADMISSION["admin_chat_id"]:
@@ -367,7 +464,9 @@ async def on_object_fail(callback: CallbackQuery):
     await callback.message.edit_reply_markup(reply_markup=None)
     if obj:
         await callback.bot.send_message(
-            obj["agent_user_id"], f"⚠️ Объект «{obj['address']}» отмечен как сорвавшийся."
+            obj["agent_user_id"],
+            f"⚠️ Объект «{obj['address']}» отмечен как сорвавшийся. "
+            "Начисление за приёмку остаётся у вас.",
         )
 
 

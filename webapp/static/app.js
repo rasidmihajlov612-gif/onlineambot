@@ -316,21 +316,31 @@ function linkifyContact(text) {
     .replace(/(\+\d[\d\s\-]{7,}\d)/g, (m) => `<a href="tel:${m.replace(/[\s\-]/g, '')}">${m}</a>`);
 }
 
+async function loadFinances() {
+  const res = await fetch('/api/finances?initData=' + encodeURIComponent(initData()));
+  if (!res.ok) return { upcoming: 0 };
+  return res.json();
+}
+
 async function renderFinances(root) {
+  const fin = await loadFinances();
   root.innerHTML = `
     <div class="section-title">Финансы</div>
-    <div class="section-hint">Раздел в разработке — скоро здесь будут выплаты и статистика по заработку.</div>
+    <div class="section-hint">Выплаты — по пятницам, за всё, что накопилось на этот момент.</div>
+    <div class="card">
+      <div class="eyebrow-label">Ближайшая выплата</div>
+      <div class="finance-amount">${fin.upcoming || 0}₽</div>
+    </div>
     <div class="card">
       <div class="eyebrow-label">Появится позже</div>
       <ul class="video-list">
         <li>💸 История выплат</li>
         <li>📊 Заработано за неделю / месяц</li>
-        <li>⏳ Ожидает выплаты</li>
       </ul>
     </div>
     <div class="coming-soon">
       <span class="coming-soon-tag">Coming soon</span>
-      <span>Пока считаем вручную — куратор подскажет по всем вопросам оплаты.</span>
+      <span>Итоговую сумму подтверждает куратор в пятницу.</span>
     </div>
   `;
 }
