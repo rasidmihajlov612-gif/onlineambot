@@ -310,6 +310,15 @@ async def check_inactivity(bot: Bot):
 
     for cand in db.list_candidates_to_remove(grace_period):
         username = f"@{cand['username']}" if cand["username"] else "(без username)"
+        try:
+            await bot.send_message(
+                cand["user_id"],
+                "Здравствуйте! За отсутствие активности мы вынуждены удалить вас из рабочих "
+                "групп.\n\nЕсли вакансия ещё актуальна — обратитесь за восстановлением доступа:\n"
+                f"{ADMISSION['rashid_contact']}",
+            )
+        except Exception:
+            logging.exception("Failed to notify %s before removal", cand["user_id"])
         for chat in ADMISSION["chats"]:
             if chat.get("public"):
                 continue
