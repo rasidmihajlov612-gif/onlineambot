@@ -25,7 +25,7 @@ async function loadConfig() {
 
 async function loadCounts() {
   const res = await fetch('/api/counts?initData=' + encodeURIComponent(initData()));
-  if (!res.ok) return { pending: 0, in_progress: 0, rejected: 0, total: 0 };
+  if (!res.ok) return { pending: 0, in_progress: 0, rejected: 0, failed: 0, total: 0 };
   return res.json();
 }
 
@@ -227,6 +227,7 @@ async function renderHandoff(root) {
       <div class="count-pill" data-key="pending"><div class="n">—</div><div class="label">на проверке</div></div>
       <div class="count-pill" data-key="in_progress"><div class="n">—</div><div class="label">в работе</div></div>
       <div class="count-pill" data-key="rejected"><div class="n">—</div><div class="label">отклонено</div></div>
+      <div class="count-pill" data-key="failed"><div class="n">—</div><div class="label">сорвалось</div></div>
     </div>
     <form id="handoff-form">
       ${HANDOFF_FIELDS.map((f) => `
@@ -315,10 +316,30 @@ function linkifyContact(text) {
     .replace(/(\+\d[\d\s\-]{7,}\d)/g, (m) => `<a href="tel:${m.replace(/[\s\-]/g, '')}">${m}</a>`);
 }
 
+async function renderFinances(root) {
+  root.innerHTML = `
+    <div class="section-title">Финансы</div>
+    <div class="section-hint">Раздел в разработке — скоро здесь будут выплаты и статистика по заработку.</div>
+    <div class="card">
+      <div class="eyebrow-label">Появится позже</div>
+      <ul class="video-list">
+        <li>💸 История выплат</li>
+        <li>📊 Заработано за неделю / месяц</li>
+        <li>⏳ Ожидает выплаты</li>
+      </ul>
+    </div>
+    <div class="coming-soon">
+      <span class="coming-soon-tag">Coming soon</span>
+      <span>Пока считаем вручную — куратор подскажет по всем вопросам оплаты.</span>
+    </div>
+  `;
+}
+
 const TABS = {
   training: renderTraining,
   start: renderStart,
   handoff: renderHandoff,
+  finances: renderFinances,
   support: renderSupport,
 };
 

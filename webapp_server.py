@@ -94,11 +94,13 @@ async def handle_counts(request):
     pending = counts.get("pending", 0)
     in_progress = counts.get("in_progress", 0)
     rejected = counts.get("rejected", 0)
+    failed = counts.get("failed", 0)
     return web.json_response({
         "pending": pending,
         "in_progress": in_progress,
         "rejected": rejected,
-        "total": pending + in_progress + rejected,
+        "failed": failed,
+        "total": pending + in_progress + rejected + failed,
     })
 
 

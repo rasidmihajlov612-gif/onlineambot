@@ -202,30 +202,30 @@ html, body {
 }
 
 .counts-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
   margin-bottom: 14px;
 }
 
 .count-pill {
-  flex: 1;
   min-width: 0;
   background: var(--secondary-bg);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 12px 4px;
+  padding: 14px 6px;
   text-align: center;
 }
 
 .count-pill .n {
   font-family: 'Unbounded', sans-serif;
-  font-size: 22px;
+  font-size: 26px;
   font-weight: 900;
 }
 
 .count-pill .label {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 8.5px;
+  font-size: 9.5px;
   letter-spacing: 0.5px;
   text-transform: uppercase;
   color: var(--hint);
@@ -343,6 +343,11 @@ html, body {
   border-bottom: none;
 }
 
+.video-list li {
+  color: var(--text);
+  font-weight: 500;
+}
+
 .video-list a {
   color: var(--text);
   text-decoration: none;
@@ -354,6 +359,26 @@ html, body {
 
 .video-list a:active {
   opacity: 0.7;
+}
+
+.coming-soon {
+  margin-top: 4px;
+  padding: 16px 18px;
+  border: 1px dashed var(--success);
+  border-radius: 14px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--body-text);
+  line-height: 1.5;
+}
+
+.coming-soon-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--success);
+  margin-right: 8px;
 }
 
 .close-hint {

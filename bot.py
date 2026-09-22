@@ -327,7 +327,12 @@ async def on_object_approve(callback: CallbackQuery):
     db.update_object_status(object_id, "in_progress")
     obj = db.get_object(object_id)
     await callback.answer("Принято в работу")
-    await callback.message.edit_reply_markup(reply_markup=None)
+    # Оставляем одну кнопку — вдруг сделка позже сорвётся, тогда куратор
+    # отмечает это тут же, не разыскивая объект отдельно.
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="⚠️ Сорвалось", callback_data=f"obj_fail:{object_id}"),
+    ]])
+    await callback.message.edit_reply_markup(reply_markup=kb)
     if obj:
         await callback.bot.send_message(
             obj["agent_user_id"], f"✅ Объект «{obj['address']}» принят в работу."
@@ -347,6 +352,22 @@ async def on_object_reject(callback: CallbackQuery):
     if obj:
         await callback.bot.send_message(
             obj["agent_user_id"], f"❌ Объект «{obj['address']}» отклонён куратором."
+        )
+
+
+@router.callback_query(F.data.startswith("obj_fail:"))
+async def on_object_fail(callback: CallbackQuery):
+    if callback.from_user.id != ADMISSION["admin_chat_id"]:
+        await callback.answer("Недоступно", show_alert=True)
+        return
+    object_id = int(callback.data.split(":", 1)[1])
+    db.update_object_status(object_id, "failed")
+    obj = db.get_object(object_id)
+    await callback.answer("Отмечено как сорвавшееся")
+    await callback.message.edit_reply_markup(reply_markup=None)
+    if obj:
+        await callback.bot.send_message(
+            obj["agent_user_id"], f"⚠️ Объект «{obj['address']}» отмечен как сорвавшийся."
         )
 
 
