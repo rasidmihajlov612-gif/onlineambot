@@ -122,6 +122,7 @@ async def handle_submit_object(request):
         raise web.HTTPBadRequest(text="owner_name and address are required")
 
     object_id = db.create_object(user["id"], **fields)
+    db.touch_active(user["id"])
 
     agent_label = f"@{user['username']}" if user.get("username") else user.get("first_name", "агент")
     lines = [f"🆕 Новый объект от {agent_label} (id {user['id']})", ""]

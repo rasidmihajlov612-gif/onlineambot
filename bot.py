@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 
 import db
 import webapp_server
-from config_loader import ADMISSION, first_step_id, get_step, next_step_id
+from config_loader import ACTIVITY, ADMISSION, first_step_id, get_step, next_step_id
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -130,6 +130,7 @@ async def advance(bot: Bot, chat_id: int, user_id: int, step_id: str):
 async def finish_admission(bot: Bot, chat_id: int, user_id: int):
     cand = db.get_candidate(user_id)
     db.update_candidate(user_id, status="passed", current_step="done")
+    db.touch_active(user_id)
 
     lines = []
     for chat in ADMISSION["chats"]:
@@ -289,6 +290,62 @@ async def on_object_reject(callback: CallbackQuery):
         )
 
 
+async def check_inactivity(bot: Bot):
+    inactive_after = ACTIVITY.get("inactive_after_days", 7)
+    grace_period = ACTIVITY.get("grace_period_days", 2)
+
+    for cand in db.list_candidates_to_warn(inactive_after):
+        db.mark_warned(cand["user_id"])
+        username = f"@{cand['username']}" if cand["username"] else "(без username)"
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Оставить активным", callback_data=f"keep_active:{cand['user_id']}"),
+        ]])
+        await bot.send_message(
+            ADMISSION["admin_chat_id"],
+            f"⚠️ Агент неактивен {inactive_after}+ дней: {cand['full_name']} {username} (id {cand['user_id']})\n\n"
+            f"Если не нажать «Оставить активным» в течение {grace_period} дн. — бот уберёт его из "
+            "рабочего чата, базы собственников и удалит из своей БД.",
+            reply_markup=kb,
+        )
+
+    for cand in db.list_candidates_to_remove(grace_period):
+        username = f"@{cand['username']}" if cand["username"] else "(без username)"
+        for chat in ADMISSION["chats"]:
+            if chat.get("public"):
+                continue
+            try:
+                await bot.ban_chat_member(chat["chat_id"], cand["user_id"])
+                await bot.unban_chat_member(chat["chat_id"], cand["user_id"], only_if_banned=True)
+            except Exception:
+                logging.exception("Failed to kick %s from %s", cand["user_id"], chat["name"])
+        db.delete_candidate(cand["user_id"])
+        await bot.send_message(
+            ADMISSION["admin_chat_id"],
+            f"🗑 Удалён за неактивность: {cand['full_name']} {username} (id {cand['user_id']})",
+        )
+
+
+async def inactivity_loop(bot: Bot):
+    interval_seconds = ACTIVITY.get("check_interval_hours", 6) * 3600
+    while True:
+        try:
+            await check_inactivity(bot)
+        except Exception:
+            logging.exception("Inactivity check failed")
+        await asyncio.sleep(interval_seconds)
+
+
+@router.callback_query(F.data.startswith("keep_active:"))
+async def on_keep_active(callback: CallbackQuery):
+    if callback.from_user.id != ADMISSION["admin_chat_id"]:
+        await callback.answer("Недоступно", show_alert=True)
+        return
+    user_id = int(callback.data.split(":", 1)[1])
+    db.touch_active(user_id)
+    await callback.answer("Оставлен активным, таймер сброшен")
+    await callback.message.edit_reply_markup(reply_markup=None)
+
+
 @router.callback_query(F.data == "training_start")
 async def on_training_start(callback: CallbackQuery):
     await callback.answer()
@@ -387,6 +444,8 @@ async def main():
         logging.info("Mini app server listening on 127.0.0.1:8080")
     else:
         logging.warning("WEBAPP_URL not set — skipping mini app server and menu button")
+
+    asyncio.create_task(inactivity_loop(bot))
 
     while True:
         try:

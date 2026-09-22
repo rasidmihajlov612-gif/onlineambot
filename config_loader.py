@@ -10,6 +10,9 @@ with open(CONFIG_PATH, encoding="utf-8") as f:
 STEPS = _config["steps"]
 ADMISSION = _config["admission"]
 WEBAPP = _config.get("webapp", {})
+ACTIVITY = _config.get("activity", {
+    "inactive_after_days": 7, "grace_period_days": 2, "check_interval_hours": 6,
+})
 
 _step_by_id = {s["id"]: s for s in STEPS}
 _step_ids = [s["id"] for s in STEPS]

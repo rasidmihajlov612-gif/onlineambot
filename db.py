@@ -50,6 +50,14 @@ def init_db():
             )
         """)
 
+        # Миграция: добавляем колонки для трекинга активности агентов, если
+        # их ещё нет (для баз, созданных до этой фичи).
+        existing = {row["name"] for row in conn.execute("PRAGMA table_info(candidates)")}
+        if "last_active_at" not in existing:
+            conn.execute("ALTER TABLE candidates ADD COLUMN last_active_at TEXT")
+        if "warned_inactive_at" not in existing:
+            conn.execute("ALTER TABLE candidates ADD COLUMN warned_inactive_at TEXT")
+
 
 def get_candidate(user_id):
     with _connect() as conn:
@@ -125,3 +133,56 @@ def count_objects_by_status(agent_user_id):
             (agent_user_id,),
         ).fetchall()
         return {row["status"]: row["n"] for row in rows}
+
+
+def touch_active(user_id):
+    """Отмечает агента как активного прямо сейчас и снимает предупреждение об инактиве."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE candidates SET last_active_at = CURRENT_TIMESTAMP, warned_inactive_at = NULL "
+            "WHERE user_id = ?",
+            (user_id,),
+        )
+
+
+def list_candidates_to_warn(inactive_after_days):
+    """Прошедшие обучение, неактивные дольше порога и ещё не предупреждённые."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM candidates
+            WHERE status = 'passed'
+              AND warned_inactive_at IS NULL
+              AND julianday('now') - julianday(COALESCE(last_active_at, updated_at)) >= ?
+            """,
+            (inactive_after_days,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def mark_warned(user_id):
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE candidates SET warned_inactive_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+            (user_id,),
+        )
+
+
+def list_candidates_to_remove(grace_period_days):
+    """Предупреждённые, у кого прошёл льготный период без ответа админа."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM candidates
+            WHERE status = 'passed'
+              AND warned_inactive_at IS NOT NULL
+              AND julianday('now') - julianday(warned_inactive_at) >= ?
+            """,
+            (grace_period_days,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def delete_candidate(user_id):
+    with _connect() as conn:
+        conn.execute("DELETE FROM candidates WHERE user_id = ?", (user_id,))
