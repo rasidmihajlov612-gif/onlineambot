@@ -75,6 +75,11 @@ def init_db():
             conn.execute("ALTER TABLE candidates ADD COLUMN last_active_at TEXT")
         if "warned_inactive_at" not in existing:
             conn.execute("ALTER TABLE candidates ADD COLUMN warned_inactive_at TEXT")
+        # id закреплённого в личке сообщения с кнопкой онлайн-офиса. Храним,
+        # чтобы повторный /start не плодил дубли, а просто перезакреплял то же
+        # сообщение, если агент его открепил.
+        if "office_pin_message_id" not in existing:
+            conn.execute("ALTER TABLE candidates ADD COLUMN office_pin_message_id INTEGER")
 
 
 def get_candidate(user_id):

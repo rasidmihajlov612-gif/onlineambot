@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 
 import db
 import webapp_server
-from config_loader import ACTIVITY, ADMISSION, PAYMENTS, first_step_id, get_step, next_step_id
+from config_loader import ACTIVITY, ADMISSION, PAYMENTS, WEBAPP, first_step_id, get_step, next_step_id
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -166,6 +166,55 @@ async def finish_admission(bot: Bot, chat_id: int, user_id: int):
     )
 
 
+async def ensure_office_pin(bot, user_id):
+    """Держит в личке агента закреплённое сообщение с кнопкой онлайн-офиса.
+
+    id сообщения лежит в candidates.office_pin_message_id, поэтому повторный
+    вызов не плодит дубли: если агент просто открепил сообщение — закрепляем
+    то же самое обратно, и только если его удалили — отправляем новое.
+    """
+    webapp_url = os.environ.get("WEBAPP_URL")
+    if not webapp_url:
+        return False
+
+    cand = db.get_candidate(user_id)
+    old_message_id = cand.get("office_pin_message_id") if cand else None
+    if old_message_id:
+        try:
+            await bot.pin_chat_message(user_id, old_message_id, disable_notification=True)
+            return True
+        except Exception:
+            logging.info("Office pin %s for %s is gone, sending a new one", old_message_id, user_id)
+
+    pinned = WEBAPP.get("pinned_office", {})
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text=pinned.get("button", "🏢 Открыть онлайн-офис"),
+            web_app=WebAppInfo(url=webapp_url),
+        )
+    ]])
+    try:
+        msg = await bot.send_message(
+            user_id,
+            pinned.get("text", "🏢 <b>Онлайн-офис</b>"),
+            reply_markup=kb,
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logging.warning("Cannot send office message to %s: %s", user_id, e)
+        return False
+
+    # Пишем id до закрепа: если закрепить не вышло, следующая попытка
+    # переиспользует это же сообщение, а не отправит ещё одно.
+    db.update_candidate(user_id, office_pin_message_id=msg.message_id)
+    try:
+        await bot.pin_chat_message(user_id, msg.message_id, disable_notification=True)
+    except Exception as e:
+        logging.warning("Cannot pin office message for %s: %s", user_id, e)
+        return False
+    return True
+
+
 @router.message(Command("start"))
 async def cmd_start(message: Message):
     user = message.from_user
@@ -194,6 +243,8 @@ async def cmd_start(message: Message):
         "Этот бот — твой импровизированный офис. Тут ты найдёшь всё, что нужно 👇",
         reply_markup=kb,
     )
+
+    await ensure_office_pin(message.bot, user.id)
 
 
 @router.message(F.video)
@@ -261,6 +312,35 @@ async def cmd_candidates(message: Message):
     text = "\n".join(lines)
     for start in range(0, len(text), 3500):
         await message.answer(text[start:start + 3500])
+
+
+@router.message(Command("pinoffice"))
+async def cmd_pin_office(message: Message):
+    """Разово закрепляет офис всем, кто зашёл в бота до появления этой фичи."""
+    if message.from_user.id != ADMISSION["admin_chat_id"]:
+        return
+
+    if not os.environ.get("WEBAPP_URL"):
+        await message.answer("WEBAPP_URL не настроен — закреплять нечего.")
+        return
+
+    candidates = [c for c in db.list_candidates() if c["status"] != "removed"]
+    if not candidates:
+        await message.answer("В базе нет агентов.")
+        return
+
+    done = failed = 0
+    for cand in candidates:
+        if await ensure_office_pin(message.bot, cand["user_id"]):
+            done += 1
+        else:
+            failed += 1
+        await asyncio.sleep(0.1)
+
+    text = f"📌 Онлайн-офис закреплён у {done} из {len(candidates)}."
+    if failed:
+        text += f"\nНе вышло у {failed} — скорее всего, заблокировали бота. Подробности в логах."
+    await message.answer(text)
 
 
 @router.message(Command("kick"))
