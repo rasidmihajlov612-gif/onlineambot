@@ -25,7 +25,7 @@ async function loadConfig() {
 
 async function loadCounts() {
   const res = await fetch('/api/counts?initData=' + encodeURIComponent(initData()));
-  if (!res.ok) return { pending: 0, in_progress: 0 };
+  if (!res.ok) return { pending: 0, in_progress: 0, rejected: 0, total: 0 };
   return res.json();
 }
 
@@ -223,8 +223,10 @@ async function renderHandoff(root) {
   root.innerHTML = `
     <div class="section-title">Передача объекта</div>
     <div class="counts-row" id="counts-row">
-      <div class="count-pill"><div class="n">—</div><div class="label">на проверке</div></div>
-      <div class="count-pill"><div class="n">—</div><div class="label">в работе</div></div>
+      <div class="count-pill" data-key="total"><div class="n">—</div><div class="label">всего</div></div>
+      <div class="count-pill" data-key="pending"><div class="n">—</div><div class="label">на проверке</div></div>
+      <div class="count-pill" data-key="in_progress"><div class="n">—</div><div class="label">в работе</div></div>
+      <div class="count-pill" data-key="rejected"><div class="n">—</div><div class="label">отклонено</div></div>
     </div>
     <form id="handoff-form">
       ${HANDOFF_FIELDS.map((f) => `
@@ -286,9 +288,10 @@ async function refreshCounts() {
   const row = document.getElementById('counts-row');
   if (!row) return;
   const counts = await loadCounts();
-  const pills = row.querySelectorAll('.count-pill .n');
-  pills[0].textContent = counts.pending || 0;
-  pills[1].textContent = counts.in_progress || 0;
+  row.querySelectorAll('.count-pill').forEach((pill) => {
+    const key = pill.dataset.key;
+    pill.querySelector('.n').textContent = counts[key] || 0;
+  });
 }
 
 async function renderSupport(root) {

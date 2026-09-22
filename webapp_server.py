@@ -91,9 +91,14 @@ async def handle_progress(request):
 async def handle_counts(request):
     user = _authenticate(request)
     counts = db.count_objects_by_status(user["id"])
+    pending = counts.get("pending", 0)
+    in_progress = counts.get("in_progress", 0)
+    rejected = counts.get("rejected", 0)
     return web.json_response({
-        "pending": counts.get("pending", 0),
-        "in_progress": counts.get("in_progress", 0),
+        "pending": pending,
+        "in_progress": in_progress,
+        "rejected": rejected,
+        "total": pending + in_progress + rejected,
     })
 
 
