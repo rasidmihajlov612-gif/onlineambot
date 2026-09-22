@@ -258,6 +258,28 @@ async def cmd_candidates(message: Message):
         await message.answer(text[start:start + 3500])
 
 
+@router.message(Command("kick"))
+async def cmd_kick(message: Message):
+    if message.from_user.id != ADMISSION["admin_chat_id"]:
+        return
+
+    inactive = db.list_inactive_candidates(min_days=3)
+    if not inactive:
+        await message.answer("Нет агентов, неактивных 3+ дня.")
+        return
+
+    for cand in inactive:
+        username = f"@{cand['username']}" if cand["username"] else "(без username)"
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Оставить активным", callback_data=f"keep_active:{cand['user_id']}"),
+            InlineKeyboardButton(text="❌ Кикнуть сейчас", callback_data=f"kick_now:{cand['user_id']}"),
+        ]])
+        await message.answer(
+            f"🕐 {cand['full_name']} {username} — неактивен {cand['days_inactive']} дн.",
+            reply_markup=kb,
+        )
+
+
 @router.callback_query(F.data.startswith("obj_approve:"))
 async def on_object_approve(callback: CallbackQuery):
     if callback.from_user.id != ADMISSION["admin_chat_id"]:

@@ -183,6 +183,25 @@ def list_candidates_to_remove(grace_period_days):
         return [dict(row) for row in rows]
 
 
+def list_inactive_candidates(min_days):
+    """Прошедшие обучение, неактивные от min_days дней — для команды /kick.
+    У каждой строки есть поле days_inactive, отсортировано по убыванию."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *,
+                   CAST(julianday('now') - julianday(COALESCE(last_active_at, updated_at)) AS INTEGER)
+                     AS days_inactive
+            FROM candidates
+            WHERE status = 'passed'
+              AND julianday('now') - julianday(COALESCE(last_active_at, updated_at)) >= ?
+            ORDER BY days_inactive DESC
+            """,
+            (min_days,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
 def delete_candidate(user_id):
     with _connect() as conn:
         conn.execute("DELETE FROM candidates WHERE user_id = ?", (user_id,))
