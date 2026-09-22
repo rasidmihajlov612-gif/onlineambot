@@ -357,6 +357,43 @@ async def on_unkick_pick(callback: CallbackQuery):
     await callback.message.answer(f"✅ Восстановлен: {cand['full_name']} {username} (id {user_id})")
 
 
+_PAYMENT_KIND_LABELS = {"accepted": "принята", "closed": "сдана"}
+
+
+@router.message(Command("money"))
+async def cmd_money(message: Message):
+    """Сводка по всем агентам с неоплаченными начислениями — вся инфа для
+    еженедельной выплаты в одном месте, без похода по каждому агенту в /kv."""
+    if message.from_user.id != ADMISSION["admin_chat_id"]:
+        return
+
+    agents = db.list_agents_with_unpaid()
+    if not agents:
+        await message.answer("Нечего выплачивать — все начисления уже закрыты.")
+        return
+
+    grand_total = 0
+    for a in agents:
+        payments = db.list_unpaid_payments_for_agent(a["user_id"])
+        username = f" (@{a['username']})" if a["username"] else ""
+        lines = [f"👤 {a['full_name']}{username}", ""]
+        lines += [
+            f"• {p['address']} — {_PAYMENT_KIND_LABELS.get(p['kind'], p['kind'])} — {p['amount']}₽"
+            for p in payments
+        ]
+        lines += ["", f"Итого: {a['unpaid_total']}₽"]
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text=f"💰 Выплачено ({a['unpaid_total']}₽)", callback_data=f"kv_paid:{a['user_id']}"
+            ),
+        ]])
+        await message.answer("\n".join(lines), reply_markup=kb)
+        grand_total += a["unpaid_total"]
+
+    await message.answer(f"💰 Всего к выплате по всем агентам: {grand_total}₽")
+
+
 @router.message(Command("kv"))
 async def cmd_kv(message: Message):
     if message.from_user.id != ADMISSION["admin_chat_id"]:

@@ -346,3 +346,30 @@ def get_payout_history(agent_user_id, limit=10):
             (agent_user_id, limit),
         ).fetchall()
         return [dict(row) for row in rows]
+
+
+def list_agents_with_unpaid():
+    """Все агенты с неоплаченными начислениями — сводка для /money."""
+    with _connect() as conn:
+        rows = conn.execute("""
+            SELECT c.user_id, c.username, c.full_name,
+                   SUM(p.amount) AS unpaid_total
+            FROM candidates c
+            JOIN payments p ON p.agent_user_id = c.user_id AND p.paid_at IS NULL
+            GROUP BY c.user_id
+            ORDER BY c.full_name
+        """).fetchall()
+        return [dict(row) for row in rows]
+
+
+def list_unpaid_payments_for_agent(agent_user_id):
+    """Неоплаченные начисления агента вместе с адресом объекта — для /money."""
+    with _connect() as conn:
+        rows = conn.execute("""
+            SELECT p.*, o.address
+            FROM payments p
+            JOIN objects o ON o.id = p.object_id
+            WHERE p.agent_user_id = ? AND p.paid_at IS NULL
+            ORDER BY p.created_at
+        """, (agent_user_id,)).fetchall()
+        return [dict(row) for row in rows]
