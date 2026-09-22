@@ -6,8 +6,8 @@ if (tg) {
   // под системную тему пользователя — поэтому красим и нативную шапку/фон
   // Telegram под тот же цвет, чтобы не было белой рамки вокруг страницы.
   try {
-    tg.setHeaderColor('#0b0b0d');
-    tg.setBackgroundColor('#0b0b0d');
+    tg.setHeaderColor('#000000');
+    tg.setBackgroundColor('#000000');
   } catch (e) { /* старый клиент Telegram — не критично */ }
 }
 

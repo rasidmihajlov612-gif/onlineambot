@@ -1,16 +1,19 @@
-/* Фирменная тёмная тема (как в материалах агентства и welcome-баннере бота) —
-   держим её постоянной, не подстраиваем под системную тему пользователя. */
+/* Фирменный стиль агентства (тот же, что в презентации "обучение.html" и
+   welcome-баннере бота): Unbounded для заголовков, JetBrains Mono для
+   разряженных капслок-лейблов, Inter для основного текста. Тема всегда
+   тёмная — не подстраивается под системную тему пользователя. */
 :root {
-  --bg: #0b0b0d;
-  --secondary-bg: #18181b;
-  --text: #f5f5f5;
-  --hint: #8b8b90;
-  --link: #4da3ff;
-  --button: #2ea6ff;
-  --button-text: #06121c;
-  --border: #2a2a2e;
-  --danger: #ff453a;
-  --success: #32d74b;
+  --bg: #000000;
+  --secondary-bg: #0a0a0a;
+  --text: #ffffff;
+  --body-text: #b0b0b0;
+  --hint: #888888;
+  --link: #ffffff;
+  --button: #ffffff;
+  --button-text: #000000;
+  --border: #1d1d1d;
+  --danger: #ff5555;
+  --success: #4ade80;
 }
 
 * { box-sizing: border-box; }
@@ -20,7 +23,7 @@ html, body {
   padding: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 15px;
   -webkit-tap-highlight-color: transparent;
 }
@@ -32,13 +35,26 @@ html, body {
 }
 
 .app-header {
-  padding: 16px 16px 8px;
+  padding: 20px 16px 10px;
+}
+
+.eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 3px;
+  color: var(--hint);
+  text-transform: uppercase;
+  margin-bottom: 8px;
 }
 
 .app-header h1 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 700;
+  font-family: 'Unbounded', sans-serif;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  line-height: 1.2;
 }
 
 #tab-content {
@@ -55,8 +71,6 @@ html, body {
   display: flex;
   background: var(--bg);
   border-top: 1px solid var(--border);
-  /* Крупный отступ поверх safe-area — на телефонах бар не должен
-     перекрываться системной полосой жестов снизу. */
   padding-bottom: calc(26px + env(safe-area-inset-bottom));
 }
 
@@ -70,9 +84,11 @@ html, body {
   background: none;
   border: none;
   color: var(--hint);
+  font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
   line-height: 1.2;
-  font-family: inherit;
 }
 
 .tab-btn span {
@@ -80,32 +96,59 @@ html, body {
 }
 
 .tab-btn.active {
-  color: var(--link);
+  color: var(--text);
 }
 
 .tab-btn .icon {
   font-size: 38px;
   line-height: 1;
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+
+.tab-btn.active .icon {
+  filter: none;
+  opacity: 1;
 }
 
 .card {
   background: var(--secondary-bg);
-  border-radius: 12px;
-  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px;
   margin-bottom: 12px;
 }
 
+.card.bright {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #000000;
+}
+
+.card.bright .section-hint { color: #444444; }
+
 .section-title {
-  font-size: 16px;
+  font-family: 'Unbounded', sans-serif;
+  font-size: 18px;
   font-weight: 700;
-  margin: 12px 0 8px;
+  letter-spacing: -0.3px;
+  margin: 12px 0 10px;
 }
 
 .section-hint {
-  color: var(--hint);
+  color: var(--body-text);
   font-size: 13px;
   margin-bottom: 12px;
-  line-height: 1.4;
+  line-height: 1.5;
+}
+
+.eyebrow-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 2.5px;
+  color: var(--hint);
+  text-transform: uppercase;
+  margin-bottom: 6px;
 }
 
 .checklist {
@@ -117,10 +160,10 @@ html, body {
 .checklist li {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 10px 0;
+  gap: 12px;
+  padding: 12px 0;
   border-bottom: 1px solid var(--border);
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .checklist li:last-child {
@@ -131,19 +174,20 @@ html, body {
   flex-shrink: 0;
   width: 22px;
   height: 22px;
-  border-radius: 6px;
-  border: 2px solid var(--border);
+  border-radius: 4px;
+  border: 1.5px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 13px;
   margin-top: 1px;
+  font-weight: 700;
 }
 
 .checklist li.done .checkbox {
   background: var(--success);
   border-color: var(--success);
-  color: #fff;
+  color: #000;
 }
 
 .checklist li.done .label {
@@ -160,69 +204,80 @@ html, body {
 .count-pill {
   flex: 1;
   background: var(--secondary-bg);
-  border-radius: 12px;
-  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px 12px;
   text-align: center;
 }
 
 .count-pill .n {
-  font-size: 22px;
-  font-weight: 700;
+  font-family: 'Unbounded', sans-serif;
+  font-size: 30px;
+  font-weight: 900;
 }
 
 .count-pill .label {
-  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
   color: var(--hint);
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 .field {
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 .field label {
   display: block;
-  font-size: 13px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
   color: var(--hint);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .field input, .field textarea {
   width: 100%;
-  padding: 10px 12px;
+  padding: 11px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--secondary-bg);
   color: var(--text);
   font-size: 15px;
-  font-family: inherit;
+  font-family: 'Inter', sans-serif;
   resize: vertical;
 }
 
 .field input:focus, .field textarea:focus {
   outline: none;
-  border-color: var(--link);
+  border-color: var(--text);
 }
 
 .btn-primary {
   width: 100%;
-  padding: 13px;
+  padding: 14px;
   border-radius: 12px;
   border: none;
   background: var(--button);
   color: var(--button-text);
-  font-size: 16px;
-  font-weight: 600;
-  font-family: inherit;
+  font-family: 'Unbounded', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
 }
 
 .btn-primary:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
 }
 
 .form-status {
   margin-top: 10px;
-  font-size: 13px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.5px;
   text-align: center;
 }
 
@@ -231,33 +286,37 @@ html, body {
 
 .contact-block {
   white-space: pre-line;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 .contact-block a {
-  color: var(--link);
-  text-decoration: none;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .progress-track {
-  height: 10px;
-  border-radius: 6px;
+  height: 8px;
+  border-radius: 4px;
   background: var(--bg);
+  border: 1px solid var(--border);
   overflow: hidden;
-  margin: 10px 0 6px;
+  margin: 12px 0 8px;
 }
 
 .progress-fill {
   height: 100%;
-  background: var(--button);
-  border-radius: 6px;
+  background: var(--text);
   transition: width 0.3s ease;
 }
 
 .progress-caption {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
   color: var(--hint);
 }
 
@@ -268,7 +327,7 @@ html, body {
 }
 
 .video-list li {
-  padding: 10px 0;
+  padding: 12px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -281,7 +340,8 @@ html, body {
   text-decoration: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  font-weight: 500;
 }
 
 .video-list a:active {
