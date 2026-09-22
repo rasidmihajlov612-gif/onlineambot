@@ -10,11 +10,15 @@ from aiogram.types import (
     ChatMemberUpdated,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    MenuButtonWebApp,
     Message,
+    WebAppInfo,
 )
+from aiohttp import web
 from dotenv import load_dotenv
 
 import db
+import webapp_server
 from config_loader import ADMISSION, first_step_id, get_step, next_step_id
 
 load_dotenv()
@@ -238,6 +242,38 @@ async def cmd_candidates(message: Message):
         await message.answer(text[start:start + 3500])
 
 
+@router.callback_query(F.data.startswith("obj_approve:"))
+async def on_object_approve(callback: CallbackQuery):
+    if callback.from_user.id != ADMISSION["admin_chat_id"]:
+        await callback.answer("Недоступно", show_alert=True)
+        return
+    object_id = int(callback.data.split(":", 1)[1])
+    db.update_object_status(object_id, "in_progress")
+    obj = db.get_object(object_id)
+    await callback.answer("Принято в работу")
+    await callback.message.edit_reply_markup(reply_markup=None)
+    if obj:
+        await callback.bot.send_message(
+            obj["agent_user_id"], f"✅ Объект «{obj['address']}» принят в работу."
+        )
+
+
+@router.callback_query(F.data.startswith("obj_reject:"))
+async def on_object_reject(callback: CallbackQuery):
+    if callback.from_user.id != ADMISSION["admin_chat_id"]:
+        await callback.answer("Недоступно", show_alert=True)
+        return
+    object_id = int(callback.data.split(":", 1)[1])
+    db.update_object_status(object_id, "rejected")
+    obj = db.get_object(object_id)
+    await callback.answer("Отклонено")
+    await callback.message.edit_reply_markup(reply_markup=None)
+    if obj:
+        await callback.bot.send_message(
+            obj["agent_user_id"], f"❌ Объект «{obj['address']}» отклонён куратором."
+        )
+
+
 @router.callback_query(F.data == "training_start")
 async def on_training_start(callback: CallbackQuery):
     await callback.answer()
@@ -315,9 +351,24 @@ async def on_quiz_answer(callback: CallbackQuery):
 
 async def main():
     db.init_db()
-    bot = Bot(token=os.environ["BOT_TOKEN"])
+    bot_token = os.environ["BOT_TOKEN"]
+    bot = Bot(token=bot_token)
     dp = Dispatcher()
     dp.include_router(router)
+
+    webapp_url = os.environ.get("WEBAPP_URL")
+    if webapp_url:
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(text="Меню", web_app=WebAppInfo(url=webapp_url))
+        )
+        app = webapp_server.create_app(bot, bot_token)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 8080)
+        await site.start()
+        logging.info("Mini app server listening on 127.0.0.1:8080")
+    else:
+        logging.warning("WEBAPP_URL not set — skipping mini app server and menu button")
 
     while True:
         try:

@@ -9,6 +9,7 @@ with open(CONFIG_PATH, encoding="utf-8") as f:
 
 STEPS = _config["steps"]
 ADMISSION = _config["admission"]
+WEBAPP = _config.get("webapp", {})
 
 _step_by_id = {s["id"]: s for s in STEPS}
 _step_ids = [s["id"] for s in STEPS]

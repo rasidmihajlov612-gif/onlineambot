@@ -32,6 +32,23 @@ def init_db():
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS objects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_user_id INTEGER NOT NULL,
+                owner_name TEXT,
+                owner_phone TEXT,
+                address TEXT,
+                price TEXT,
+                deposit TEXT,
+                showing_time TEXT,
+                tenant_criteria TEXT,
+                notes TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
 
 def get_candidate(user_id):
@@ -74,3 +91,37 @@ def save_quiz_result(user_id, step_id, correct, total):
     attempts = results.get(step_id, {}).get("attempts", 0) + 1
     results[step_id] = {"correct": correct, "total": total, "attempts": attempts}
     update_candidate(user_id, quiz_results=json.dumps(results, ensure_ascii=False))
+
+
+def create_object(agent_user_id, **fields):
+    columns = ["agent_user_id"] + list(fields.keys())
+    placeholders = ", ".join("?" for _ in columns)
+    values = [agent_user_id] + list(fields.values())
+    with _connect() as conn:
+        cur = conn.execute(
+            f"INSERT INTO objects ({', '.join(columns)}) VALUES ({placeholders})", values
+        )
+        return cur.lastrowid
+
+
+def get_object(object_id):
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM objects WHERE id = ?", (object_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def update_object_status(object_id, status):
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE objects SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (status, object_id),
+        )
+
+
+def count_objects_by_status(agent_user_id):
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) as n FROM objects WHERE agent_user_id = ? GROUP BY status",
+            (agent_user_id,),
+        ).fetchall()
+        return {row["status"]: row["n"] for row in rows}
