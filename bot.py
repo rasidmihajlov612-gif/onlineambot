@@ -290,6 +290,32 @@ async def on_object_reject(callback: CallbackQuery):
         )
 
 
+async def remove_agent(bot: Bot, cand: dict):
+    username = f"@{cand['username']}" if cand["username"] else "(без username)"
+    try:
+        await bot.send_message(
+            cand["user_id"],
+            "Здравствуйте! За отсутствие активности мы вынуждены удалить вас из рабочих "
+            "групп.\n\nЕсли вакансия ещё актуальна — обратитесь за восстановлением доступа:\n"
+            f"{ADMISSION['rashid_contact']}",
+        )
+    except Exception:
+        logging.exception("Failed to notify %s before removal", cand["user_id"])
+    for chat in ADMISSION["chats"]:
+        if chat.get("public"):
+            continue
+        try:
+            await bot.ban_chat_member(chat["chat_id"], cand["user_id"])
+            await bot.unban_chat_member(chat["chat_id"], cand["user_id"], only_if_banned=True)
+        except Exception:
+            logging.exception("Failed to kick %s from %s", cand["user_id"], chat["name"])
+    db.delete_candidate(cand["user_id"])
+    await bot.send_message(
+        ADMISSION["admin_chat_id"],
+        f"🗑 Удалён за неактивность: {cand['full_name']} {username} (id {cand['user_id']})",
+    )
+
+
 async def check_inactivity(bot: Bot):
     inactive_after = ACTIVITY.get("inactive_after_days", 7)
     grace_period = ACTIVITY.get("grace_period_days", 2)
@@ -299,6 +325,7 @@ async def check_inactivity(bot: Bot):
         username = f"@{cand['username']}" if cand["username"] else "(без username)"
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="✅ Оставить активным", callback_data=f"keep_active:{cand['user_id']}"),
+            InlineKeyboardButton(text="❌ Кикнуть сейчас", callback_data=f"kick_now:{cand['user_id']}"),
         ]])
         await bot.send_message(
             ADMISSION["admin_chat_id"],
@@ -309,29 +336,7 @@ async def check_inactivity(bot: Bot):
         )
 
     for cand in db.list_candidates_to_remove(grace_period):
-        username = f"@{cand['username']}" if cand["username"] else "(без username)"
-        try:
-            await bot.send_message(
-                cand["user_id"],
-                "Здравствуйте! За отсутствие активности мы вынуждены удалить вас из рабочих "
-                "групп.\n\nЕсли вакансия ещё актуальна — обратитесь за восстановлением доступа:\n"
-                f"{ADMISSION['rashid_contact']}",
-            )
-        except Exception:
-            logging.exception("Failed to notify %s before removal", cand["user_id"])
-        for chat in ADMISSION["chats"]:
-            if chat.get("public"):
-                continue
-            try:
-                await bot.ban_chat_member(chat["chat_id"], cand["user_id"])
-                await bot.unban_chat_member(chat["chat_id"], cand["user_id"], only_if_banned=True)
-            except Exception:
-                logging.exception("Failed to kick %s from %s", cand["user_id"], chat["name"])
-        db.delete_candidate(cand["user_id"])
-        await bot.send_message(
-            ADMISSION["admin_chat_id"],
-            f"🗑 Удалён за неактивность: {cand['full_name']} {username} (id {cand['user_id']})",
-        )
+        await remove_agent(bot, cand)
 
 
 async def inactivity_loop(bot: Bot):
@@ -353,6 +358,19 @@ async def on_keep_active(callback: CallbackQuery):
     db.touch_active(user_id)
     await callback.answer("Оставлен активным, таймер сброшен")
     await callback.message.edit_reply_markup(reply_markup=None)
+
+
+@router.callback_query(F.data.startswith("kick_now:"))
+async def on_kick_now(callback: CallbackQuery):
+    if callback.from_user.id != ADMISSION["admin_chat_id"]:
+        await callback.answer("Недоступно", show_alert=True)
+        return
+    user_id = int(callback.data.split(":", 1)[1])
+    cand = db.get_candidate(user_id)
+    await callback.answer("Кикаю...")
+    await callback.message.edit_reply_markup(reply_markup=None)
+    if cand:
+        await remove_agent(callback.bot, cand)
 
 
 @router.callback_query(F.data == "training_start")
