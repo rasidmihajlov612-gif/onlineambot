@@ -202,6 +202,8 @@ def list_inactive_candidates(min_days):
         return [dict(row) for row in rows]
 
 
-def delete_candidate(user_id):
+def soft_remove_candidate(user_id):
+    """Не удаляет запись целиком — помечает статусом removed, чтобы /unkick
+    мог найти и восстановить агента (имя, история тестов и т.д. не теряются)."""
     with _connect() as conn:
-        conn.execute("DELETE FROM candidates WHERE user_id = ?", (user_id,))
+        conn.execute("UPDATE candidates SET status = 'removed' WHERE user_id = ?", (user_id,))

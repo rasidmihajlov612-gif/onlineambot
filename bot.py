@@ -127,11 +127,7 @@ async def advance(bot: Bot, chat_id: int, user_id: int, step_id: str):
         await send_step(bot, chat_id, user_id, nxt)
 
 
-async def finish_admission(bot: Bot, chat_id: int, user_id: int):
-    cand = db.get_candidate(user_id)
-    db.update_candidate(user_id, status="passed", current_step="done")
-    db.touch_active(user_id)
-
+async def build_invite_links(bot: Bot, user_id: int) -> str:
     lines = []
     for chat in ADMISSION["chats"]:
         if chat.get("public"):
@@ -146,11 +142,20 @@ async def finish_admission(bot: Bot, chat_id: int, user_id: int):
             lines.append(f"• {chat['name']}: {link.invite_link}")
         except Exception as e:
             lines.append(f"• {chat['name']}: не удалось создать ссылку ({e}) — добавьте вручную")
+    return "\n".join(lines)
+
+
+async def finish_admission(bot: Bot, chat_id: int, user_id: int):
+    cand = db.get_candidate(user_id)
+    db.update_candidate(user_id, status="passed", current_step="done")
+    db.touch_active(user_id)
+
+    links_text = await build_invite_links(bot, user_id)
 
     await bot.send_message(
         chat_id,
         "🎉 Поздравляем! Вы прошли обучение и готовы приступать к звонкам.\n\n"
-        "Вступите в чаты:\n" + "\n".join(lines) + "\n\n"
+        "Вступите в чаты:\n" + links_text + "\n\n"
         f"По всем вопросам:\n{ADMISSION['rashid_contact']}",
     )
 
@@ -280,6 +285,39 @@ async def cmd_kick(message: Message):
         )
 
 
+@router.message(Command("unkick"))
+async def cmd_unkick(message: Message):
+    if message.from_user.id != ADMISSION["admin_chat_id"]:
+        return
+
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip().isdigit():
+        await message.answer("Использование: /unkick <id> — id есть в сообщении об удалении.")
+        return
+
+    user_id = int(parts[1].strip())
+    cand = db.get_candidate(user_id)
+    if not cand or cand["status"] != "removed":
+        await message.answer("Не нашёл такого удалённого агента — проверьте id.")
+        return
+
+    db.update_candidate(user_id, status="passed")
+    db.touch_active(user_id)
+
+    links_text = await build_invite_links(message.bot, user_id)
+    try:
+        await message.bot.send_message(
+            user_id,
+            "Вас восстановили в команде! 🎉\n\nВступите в чаты заново:\n" + links_text + "\n\n"
+            f"По всем вопросам:\n{ADMISSION['rashid_contact']}",
+        )
+    except Exception:
+        logging.exception("Failed to notify %s about unkick", user_id)
+
+    username = f"@{cand['username']}" if cand["username"] else "(без username)"
+    await message.answer(f"✅ Восстановлен: {cand['full_name']} {username} (id {user_id})")
+
+
 @router.callback_query(F.data.startswith("obj_approve:"))
 async def on_object_approve(callback: CallbackQuery):
     if callback.from_user.id != ADMISSION["admin_chat_id"]:
@@ -331,10 +369,11 @@ async def remove_agent(bot: Bot, cand: dict):
             await bot.unban_chat_member(chat["chat_id"], cand["user_id"], only_if_banned=True)
         except Exception:
             logging.exception("Failed to kick %s from %s", cand["user_id"], chat["name"])
-    db.delete_candidate(cand["user_id"])
+    db.soft_remove_candidate(cand["user_id"])
     await bot.send_message(
         ADMISSION["admin_chat_id"],
-        f"🗑 Удалён за неактивность: {cand['full_name']} {username} (id {cand['user_id']})",
+        f"🗑 Удалён за неактивность: {cand['full_name']} {username} (id {cand['user_id']})\n"
+        f"Передумаете — /unkick {cand['user_id']}",
     )
 
 
