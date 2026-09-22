@@ -9,7 +9,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiohttp import web
 
 import db
-from config_loader import ADMISSION, WEBAPP
+from config_loader import ADMISSION, WEBAPP, get_step, step_progress
 
 WEBAPP_DIR = Path(__file__).parent / "webapp"
 _INIT_DATA_MAX_AGE = 86400  # Telegram recommends treating older initData as stale
@@ -55,6 +55,35 @@ async def handle_config(request):
         "checklist": WEBAPP.get("checklist", []),
         "support_info": WEBAPP.get("support_info", ""),
         "contact": ADMISSION.get("rashid_contact", ""),
+        "extra_videos": WEBAPP.get("extra_videos", []),
+    })
+
+
+async def handle_progress(request):
+    user = _authenticate(request)
+    cand = db.get_candidate(user["id"])
+    if not cand or cand["current_step"] in ("new", ""):
+        return web.json_response({"started": False})
+
+    if cand["current_step"] == "done" or cand["status"] == "passed":
+        return web.json_response({
+            "started": True, "done": True, "percent": 100,
+            "step_label": "Обучение пройдено",
+        })
+
+    step_num, total = step_progress(cand["current_step"])
+    try:
+        step_title = get_step(cand["current_step"])["title"]
+    except KeyError:
+        step_title = cand["current_step"]
+
+    return web.json_response({
+        "started": True,
+        "done": False,
+        "percent": round(step_num / total * 100) if total else 0,
+        "step_num": step_num,
+        "total_steps": total,
+        "step_label": step_title,
     })
 
 
@@ -123,6 +152,7 @@ def create_app(bot, bot_token: str, start_training_cb) -> web.Application:
     app.router.add_get("/", handle_index)
     app.router.add_get("/api/config", handle_config)
     app.router.add_get("/api/counts", handle_counts)
+    app.router.add_get("/api/progress", handle_progress)
     app.router.add_post("/api/submit-object", handle_submit_object)
     app.router.add_post("/api/start-training", handle_start_training)
     app.router.add_static("/static/", WEBAPP_DIR / "static")

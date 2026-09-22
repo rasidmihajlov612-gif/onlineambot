@@ -26,3 +26,11 @@ def first_step_id():
 def next_step_id(step_id):
     idx = _step_ids.index(step_id)
     return _step_ids[idx + 1] if idx + 1 < len(_step_ids) else None
+
+
+def step_progress(step_id):
+    """Возвращает (номер_шага_с_1, всего_шагов) для прогресс-бара мини-аппа."""
+    total = len(_step_ids)
+    if step_id in _step_by_id:
+        return _step_ids.index(step_id) + 1, total
+    return 0, total

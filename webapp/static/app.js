@@ -29,6 +29,12 @@ async function loadCounts() {
   return res.json();
 }
 
+async function loadProgress() {
+  const res = await fetch('/api/progress?initData=' + encodeURIComponent(initData()));
+  if (!res.ok) return null;
+  return res.json();
+}
+
 const CHECKLIST_STORAGE_KEY = 'am_checklist_done';
 
 function getChecklistDone() {
@@ -49,15 +55,37 @@ function toggleChecklistDone(index) {
 }
 
 async function renderTraining(root) {
+  const [cfg, progress] = await Promise.all([loadConfig(), loadProgress()]);
+
+  const progressBlock = (progress && progress.started) ? `
+    <div class="progress-track"><div class="progress-fill" style="width:${progress.percent}%"></div></div>
+    <div class="progress-caption">
+      <span>${escapeHtml(progress.step_label || '')}</span>
+      <span>${progress.percent}%</span>
+    </div>
+  ` : '';
+
+  const videos = (cfg.extra_videos || []).filter((v) => v.url && !String(v.url).startsWith('TODO'));
+  const videosBlock = videos.length ? `
+    <div class="card">
+      <div class="section-title">Доп. материалы</div>
+      <ul class="video-list">
+        ${videos.map((v) => `<li><a href="${escapeAttr(v.url)}" target="_blank">🎬 ${escapeHtml(v.title)}</a></li>`).join('')}
+      </ul>
+    </div>
+  ` : '';
+
   root.innerHTML = `
     <div class="card">
       <div class="section-title">Обучение</div>
+      ${progressBlock}
       <div class="section-hint">
         Видео, скрипты и тесты проходятся прямо в чате с ботом — так проще пересдавать
         тесты и не терять прогресс. Нажмите кнопку ниже, чтобы начать (или продолжить).
       </div>
       <button class="btn-primary" id="go-chat-btn">Начать обучение в чате</button>
     </div>
+    ${videosBlock}
   `;
   const btn = document.getElementById('go-chat-btn');
   btn.onclick = async () => {
@@ -187,13 +215,20 @@ async function renderSupport(root) {
   root.innerHTML = `
     <div class="card">
       <div class="section-title">Контакт куратора</div>
-      <div class="contact-block">${escapeHtml(cfg.contact || '')}</div>
+      <div class="contact-block">${linkifyContact(cfg.contact || '')}</div>
     </div>
     <div class="card">
       <div class="section-title">Общая информация</div>
       <div class="contact-block">${escapeHtml(cfg.support_info || '')}</div>
     </div>
   `;
+}
+
+function linkifyContact(text) {
+  // escapeHtml сначала — регексы ниже вставляют уже безопасные <a>-теги поверх
+  return escapeHtml(text)
+    .replace(/@(\w+)/g, '<a href="https://t.me/$1" target="_blank">@$1</a>')
+    .replace(/(\+\d[\d\s\-]{7,}\d)/g, (m) => `<a href="tel:${m.replace(/[\s\-]/g, '')}">${m}</a>`);
 }
 
 const TABS = {
@@ -207,6 +242,14 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+function escapeAttr(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 async function showTab(tab) {

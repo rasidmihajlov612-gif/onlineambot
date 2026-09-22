@@ -43,7 +43,7 @@ html, body {
 
 #tab-content {
   flex: 1;
-  padding: 8px 16px 110px;
+  padding: 8px 16px 150px;
   overflow-y: auto;
 }
 
@@ -55,9 +55,9 @@ html, body {
   display: flex;
   background: var(--bg);
   border-top: 1px solid var(--border);
-  /* Доп. отступ поверх safe-area — иначе на части телефонов подписи
-     обрезаются системной полосой жестов снизу. */
-  padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  /* Крупный отступ поверх safe-area — на телефонах бар не должен
+     перекрываться системной полосой жестов снизу. */
+  padding-bottom: calc(26px + env(safe-area-inset-bottom));
 }
 
 .tab-btn {
@@ -65,8 +65,8 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 8px 2px 4px;
+  gap: 4px;
+  padding: 10px 2px 4px;
   background: none;
   border: none;
   color: var(--hint);
@@ -84,7 +84,8 @@ html, body {
 }
 
 .tab-btn .icon {
-  font-size: 20px;
+  font-size: 38px;
+  line-height: 1;
 }
 
 .card {
@@ -231,6 +232,60 @@ html, body {
 .contact-block {
   white-space: pre-line;
   line-height: 1.5;
+}
+
+.contact-block a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+.progress-track {
+  height: 10px;
+  border-radius: 6px;
+  background: var(--bg);
+  overflow: hidden;
+  margin: 10px 0 6px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--button);
+  border-radius: 6px;
+  transition: width 0.3s ease;
+}
+
+.progress-caption {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--hint);
+}
+
+.video-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.video-list li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.video-list li:last-child {
+  border-bottom: none;
+}
+
+.video-list a {
+  color: var(--text);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.video-list a:active {
+  opacity: 0.7;
 }
 
 .close-hint {
