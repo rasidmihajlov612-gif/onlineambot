@@ -357,6 +357,23 @@ async def on_unkick_pick(callback: CallbackQuery):
     await callback.message.answer(f"✅ Восстановлен: {cand['full_name']} {username} (id {user_id})")
 
 
+@router.message(Command("admin"))
+async def cmd_admin(message: Message):
+    """Потайная ссылка на веб-панель куратора. Никакого меню, никакой
+    кнопки в общем интерфейсе — только по этой команде, и только тебе."""
+    if message.from_user.id != ADMISSION["admin_chat_id"]:
+        return
+    webapp_url = os.environ.get("WEBAPP_URL")
+    if not webapp_url:
+        await message.answer("WEBAPP_URL не настроен — мини-апп сейчас недоступен.")
+        return
+    admin_url = webapp_url.rstrip("/") + "/admin"
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🔐 Открыть панель", web_app=WebAppInfo(url=admin_url)),
+    ]])
+    await message.answer("Панель куратора — попросит PIN при входе.", reply_markup=kb)
+
+
 _PAYMENT_KIND_LABELS = {"accepted": "принята", "closed": "сдана"}
 
 
@@ -720,7 +737,10 @@ async def main():
         async def start_training_cb(user):
             await start_training(bot, user["id"], user.get("username"), user.get("first_name"))
 
-        app = webapp_server.create_app(bot, bot_token, start_training_cb)
+        admin_pin = os.environ.get("ADMIN_PIN")
+        if not admin_pin:
+            logging.warning("ADMIN_PIN not set — /admin panel API will reject every request")
+        app = webapp_server.create_app(bot, bot_token, start_training_cb, admin_pin)
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, "127.0.0.1", 8080)

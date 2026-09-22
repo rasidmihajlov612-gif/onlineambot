@@ -46,8 +46,73 @@ def _authenticate(request, body=None):
     return user
 
 
+def _authenticate_admin(request, body=None):
+    """Двухфакторка для /admin: настоящая личность в Telegram (initData,
+    как везде) + PIN, известный только куратору. Обе проверки — на каждый
+    запрос, не только на входе, PIN нигде не сохраняется на сервере."""
+    user = _authenticate(request, body)
+    if user["id"] != ADMISSION["admin_chat_id"]:
+        raise web.HTTPForbidden(text="not admin")
+    admin_pin = request.app.get("admin_pin")
+    pin = (body or {}).get("pin") or request.query.get("pin")
+    if not admin_pin or pin != admin_pin:
+        raise web.HTTPUnauthorized(text="invalid pin")
+    return user
+
+
 async def handle_index(request):
     return web.FileResponse(WEBAPP_DIR / "index.html")
+
+
+async def handle_admin_page(request):
+    return web.FileResponse(WEBAPP_DIR / "admin.html")
+
+
+async def handle_admin_verify(request):
+    body = await request.json()
+    _authenticate_admin(request, body)
+    return web.json_response({"ok": True})
+
+
+_PAYMENT_KIND_LABELS = {"accepted": "принята", "closed": "сдана"}
+
+
+async def handle_admin_money(request):
+    _authenticate_admin(request)
+    agents = db.list_agents_with_unpaid()
+    result = []
+    grand_total = 0
+    for a in agents:
+        payments = db.list_unpaid_payments_for_agent(a["user_id"])
+        result.append({
+            "user_id": a["user_id"],
+            "full_name": a["full_name"],
+            "username": a["username"],
+            "unpaid_total": a["unpaid_total"],
+            "items": [
+                {
+                    "address": p["address"],
+                    "kind_label": _PAYMENT_KIND_LABELS.get(p["kind"], p["kind"]),
+                    "amount": p["amount"],
+                }
+                for p in payments
+            ],
+        })
+        grand_total += a["unpaid_total"]
+    return web.json_response({"agents": result, "grand_total": grand_total})
+
+
+async def handle_admin_payout(request):
+    body = await request.json()
+    _authenticate_admin(request, body)
+    agent_id = int(body["agent_id"])
+    amount = db.mark_agent_paid(agent_id)
+    if amount:
+        try:
+            await request.app["bot"].send_message(agent_id, f"💰 Вам выплачено {amount}₽.")
+        except Exception:
+            pass
+    return web.json_response({"paid": amount})
 
 
 async def handle_config(request):
@@ -168,12 +233,17 @@ async def handle_start_training(request):
     return web.json_response({"ok": True})
 
 
-def create_app(bot, bot_token: str, start_training_cb) -> web.Application:
+def create_app(bot, bot_token: str, start_training_cb, admin_pin: str = None) -> web.Application:
     app = web.Application()
     app["bot"] = bot
     app["bot_token"] = bot_token
     app["start_training_cb"] = start_training_cb
+    app["admin_pin"] = admin_pin
     app.router.add_get("/", handle_index)
+    app.router.add_get("/admin", handle_admin_page)
+    app.router.add_post("/api/admin/verify", handle_admin_verify)
+    app.router.add_get("/api/admin/money", handle_admin_money)
+    app.router.add_post("/api/admin/payout", handle_admin_payout)
     app.router.add_get("/api/config", handle_config)
     app.router.add_get("/api/counts", handle_counts)
     app.router.add_get("/api/finances", handle_finances)
