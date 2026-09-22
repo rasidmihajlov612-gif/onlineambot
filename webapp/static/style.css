@@ -223,6 +223,13 @@ html, body {
   font-weight: 900;
 }
 
+/* Суммы длиннее коротких счётчиков объектов — уменьшаем, чтобы не наезжали
+   друг на друга в 3-колоночной сетке. */
+.count-pill.money .n {
+  font-size: 15px;
+  line-height: 1.2;
+}
+
 .count-pill .label {
   font-family: 'JetBrains Mono', monospace;
   font-size: 9.5px;
@@ -386,6 +393,42 @@ html, body {
   font-size: 40px;
   font-weight: 900;
   margin-top: 4px;
+}
+
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 90px;
+  margin-top: 14px;
+}
+
+.chart-col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.chart-bar {
+  width: 100%;
+  background: var(--text);
+  border-radius: 3px 3px 0 0;
+  min-height: 2px;
+}
+
+.chart-labels {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.chart-labels div {
+  flex: 1;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  color: var(--hint);
 }
 
 .close-hint {

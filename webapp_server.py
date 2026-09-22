@@ -9,7 +9,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiohttp import web
 
 import db
-from config_loader import ADMISSION, WEBAPP, get_step, step_progress
+from config_loader import ADMISSION, PAYMENTS, WEBAPP, get_step, step_progress
 
 WEBAPP_DIR = Path(__file__).parent / "webapp"
 _INIT_DATA_MAX_AGE = 86400  # Telegram recommends treating older initData as stale
@@ -90,7 +90,17 @@ async def handle_progress(request):
 
 async def handle_finances(request):
     user = _authenticate(request)
-    return web.json_response({"upcoming": db.get_unpaid_total(user["id"])})
+    agent_id = user["id"]
+    counts = db.count_objects_by_status(agent_id)
+    in_progress_count = counts.get("in_progress", 0)
+    return web.json_response({
+        "upcoming": db.get_unpaid_total(agent_id),
+        "in_progress_count": in_progress_count,
+        "in_progress_potential": in_progress_count * PAYMENTS["closed_rate"],
+        "totals": db.get_payment_totals(agent_id),
+        "weekly": db.get_weekly_earnings(agent_id),
+        "history": db.get_payout_history(agent_id),
+    })
 
 
 async def handle_counts(request):

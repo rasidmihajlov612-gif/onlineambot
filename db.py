@@ -1,3 +1,4 @@
+import datetime
 import sqlite3
 import json
 from contextlib import contextmanager
@@ -285,3 +286,63 @@ def mark_agent_paid(agent_user_id):
                 (agent_user_id,),
             )
     return total
+
+
+def get_payment_totals(agent_user_id):
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                COALESCE(SUM(amount), 0) AS lifetime_earned,
+                COALESCE(SUM(CASE WHEN paid_at IS NOT NULL THEN amount ELSE 0 END), 0) AS lifetime_paid,
+                COALESCE(SUM(CASE WHEN julianday('now') - julianday(created_at) <= 30
+                                  THEN amount ELSE 0 END), 0) AS last_30_days
+            FROM payments
+            WHERE agent_user_id = ?
+            """,
+            (agent_user_id,),
+        ).fetchone()
+        return dict(row)
+
+
+def get_weekly_earnings(agent_user_id, weeks=8):
+    """Начисления по неделям (пн-вс) за последние `weeks` недель, старые
+    сначала — удобно сразу отдавать в график."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT amount, created_at FROM payments WHERE agent_user_id = ?",
+            (agent_user_id,),
+        ).fetchall()
+
+    buckets = {}
+    for row in rows:
+        dt = datetime.datetime.fromisoformat(row["created_at"])
+        monday = dt.date() - datetime.timedelta(days=dt.weekday())
+        buckets[monday] = buckets.get(monday, 0) + row["amount"]
+
+    today = datetime.date.today()
+    this_monday = today - datetime.timedelta(days=today.weekday())
+    result = []
+    for i in range(weeks - 1, -1, -1):
+        monday = this_monday - datetime.timedelta(weeks=i)
+        result.append({"label": monday.strftime("%d.%m"), "amount": buckets.get(monday, 0)})
+    return result
+
+
+def get_payout_history(agent_user_id, limit=10):
+    """Прошлые выплаты, сгруппированные по моменту нажатия "Выплачено"
+    (в один вызов mark_agent_paid все строки получают один и тот же
+    paid_at — CURRENT_TIMESTAMP один раз на весь UPDATE)."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT paid_at, SUM(amount) AS total
+            FROM payments
+            WHERE agent_user_id = ? AND paid_at IS NOT NULL
+            GROUP BY paid_at
+            ORDER BY paid_at DESC
+            LIMIT ?
+            """,
+            (agent_user_id, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]

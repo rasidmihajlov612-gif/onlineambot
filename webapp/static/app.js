@@ -318,30 +318,88 @@ function linkifyContact(text) {
 
 async function loadFinances() {
   const res = await fetch('/api/finances?initData=' + encodeURIComponent(initData()));
-  if (!res.ok) return { upcoming: 0 };
+  if (!res.ok) {
+    return {
+      upcoming: 0, in_progress_count: 0, in_progress_potential: 0,
+      totals: { lifetime_earned: 0, lifetime_paid: 0, last_30_days: 0 },
+      weekly: [], history: [],
+    };
+  }
   return res.json();
+}
+
+function renderEarningsChart(weekly) {
+  const max = Math.max(1, ...weekly.map((w) => w.amount));
+  return `
+    <div class="chart">
+      ${weekly.map((w) => `
+        <div class="chart-col" title="${w.amount}₽">
+          <div class="chart-bar" style="height:${w.amount ? Math.max(6, Math.round(w.amount / max * 100)) : 2}%"></div>
+        </div>
+      `).join('')}
+    </div>
+    <div class="chart-labels">
+      ${weekly.map((w) => `<div>${escapeHtml(w.label)}</div>`).join('')}
+    </div>
+  `;
+}
+
+function formatPayoutDate(isoStr) {
+  const [y, m, d] = isoStr.slice(0, 10).split('-');
+  return `${d}.${m}.${y}`;
 }
 
 async function renderFinances(root) {
   const fin = await loadFinances();
+  const totals = fin.totals || {};
+
+  const tipBlock = fin.in_progress_count > 0 ? `
+    <div class="card">
+      <div class="eyebrow-label">Потенциал</div>
+      <div class="section-hint" style="margin-bottom:0;">
+        🏠 В работе: ${fin.in_progress_count} — как только сдадутся, получите ещё
+        <strong style="color:var(--text)">+${fin.in_progress_potential}₽</strong>.
+      </div>
+    </div>
+  ` : '';
+
+  const historyBlock = (fin.history && fin.history.length) ? `
+    <div class="card">
+      <div class="section-title" style="font-size:15px;">История выплат</div>
+      <ul class="video-list">
+        ${fin.history.map((h) => `<li>💸 ${formatPayoutDate(h.paid_at)} — ${h.total}₽</li>`).join('')}
+      </ul>
+    </div>
+  ` : `
+    <div class="coming-soon">
+      <span class="coming-soon-tag">Пока пусто</span>
+      <span>Первая выплата появится здесь после пятницы.</span>
+    </div>
+  `;
+
   root.innerHTML = `
     <div class="section-title">Финансы</div>
     <div class="section-hint">Выплаты — по пятницам, за всё, что накопилось на этот момент.</div>
+
     <div class="card">
       <div class="eyebrow-label">Ближайшая выплата</div>
       <div class="finance-amount">${fin.upcoming || 0}₽</div>
     </div>
+
+    <div class="counts-row">
+      <div class="count-pill money"><div class="n">${totals.lifetime_earned || 0}₽</div><div class="label">всего</div></div>
+      <div class="count-pill money"><div class="n">${totals.lifetime_paid || 0}₽</div><div class="label">выплачено</div></div>
+      <div class="count-pill money"><div class="n">${totals.last_30_days || 0}₽</div><div class="label">за 30 дней</div></div>
+    </div>
+
+    ${tipBlock}
+
     <div class="card">
-      <div class="eyebrow-label">Появится позже</div>
-      <ul class="video-list">
-        <li>💸 История выплат</li>
-        <li>📊 Заработано за неделю / месяц</li>
-      </ul>
+      <div class="section-title" style="font-size:15px;">По неделям</div>
+      ${renderEarningsChart(fin.weekly || [])}
     </div>
-    <div class="coming-soon">
-      <span class="coming-soon-tag">Coming soon</span>
-      <span>Итоговую сумму подтверждает куратор в пятницу.</span>
-    </div>
+
+    ${historyBlock}
   `;
 }
 
