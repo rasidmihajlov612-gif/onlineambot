@@ -61,13 +61,20 @@ async function renderTraining(root) {
       <div class="section-title">Обучение</div>
       <div class="section-hint">
         Видео, скрипты и тесты проходятся прямо в чате с ботом — так проще пересдавать
-        тесты и не терять прогресс. Нажмите кнопку ниже, чтобы вернуться в чат.
+        тесты и не терять прогресс. Нажмите кнопку ниже, чтобы начать (или продолжить).
       </div>
-      <button class="btn-primary" id="go-chat-btn">Открыть чат с ботом</button>
+      <button class="btn-primary" id="go-chat-btn">Начать обучение в чате</button>
     </div>
   `;
   document.getElementById('go-chat-btn').onclick = () => {
-    if (tg) tg.close();
+    if (!tg) return;
+    // sendData закрывает мини-апп сам и присылает боту сообщение с этим payload
+    // (обрабатывается в on_webapp_data в bot.py). tg.close() ниже — подстраховка
+    // на случай, если sendData недоступен в текущем контексте запуска.
+    try {
+      tg.sendData(JSON.stringify({ action: 'start_training' }));
+    } catch (e) { /* контекст запуска не поддерживает sendData — просто закрываем */ }
+    tg.close();
   };
 }
 

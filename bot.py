@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import socket
@@ -166,13 +167,31 @@ async def cmd_start(message: Message):
         quiz_results="{}",
     )
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Начать обучение", callback_data="training_start")
-    ]])
+    webapp_url = os.environ.get("WEBAPP_URL")
+    if webapp_url:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="📲 Открыть офис", web_app=WebAppInfo(url=webapp_url))
+        ]])
+    else:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Начать обучение", callback_data="training_start")
+        ]])
+
     await message.answer(
-        "Здравствуйте! 👋 Это бот обучения агентов агентства недвижимости.\n\nПриступим к обучению?",
+        "Привет! 👋 Это Агентство Андрея Медведева.\n\n"
+        "Этот бот — твой импровизированный офис. Тут ты найдёшь всё, что нужно 👇",
         reply_markup=kb,
     )
+
+
+@router.message(F.web_app_data)
+async def on_webapp_data(message: Message):
+    try:
+        payload = json.loads(message.web_app_data.data)
+    except (ValueError, AttributeError):
+        return
+    if payload.get("action") == "start_training":
+        await send_step(message.bot, message.chat.id, message.from_user.id, first_step_id())
 
 
 @router.message(F.video)
