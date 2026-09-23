@@ -365,7 +365,6 @@ async def cmd_kick(message: Message):
         )
 
 
-@router.message(Command("unkick"))
 async def restore_agent(bot: Bot, user_id: int):
     """Возвращает удалённого агента в статус passed + шлёт ему новые
     инвайты. Возвращает карточку кандидата или None, если восстанавливать
@@ -817,10 +816,15 @@ async def main():
         async def start_training_cb(user):
             await start_training(bot, user["id"], user.get("username"), user.get("first_name"))
 
+        async def restore_agent_cb(user_id):
+            return await restore_agent(bot, user_id)
+
         admin_pin = os.environ.get("ADMIN_PIN")
         if not admin_pin:
             logging.warning("ADMIN_PIN not set — /admin panel API will reject every request")
-        app = webapp_server.create_app(bot, bot_token, start_training_cb, admin_pin)
+        app = webapp_server.create_app(
+            bot, bot_token, start_training_cb, admin_pin, restore_agent_cb
+        )
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, "127.0.0.1", 8080)

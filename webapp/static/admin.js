@@ -14,8 +14,32 @@ function initData() {
 
 function escapeHtml(str) {
   const div = document.createElement('div');
-  div.textContent = str;
+  div.textContent = str == null ? '' : str;
   return div.innerHTML;
+}
+
+// Даты в базе — UTC-строки SQLite ("2026-09-22 18:33:01"). Куратор живёт по
+// Москве, поэтому показываем в МСК, а не в таймзоне устройства.
+function fmtDate(raw) {
+  if (!raw) return '—';
+  const d = new Date(raw.replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return raw;
+  return d.toLocaleString('ru-RU', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    timeZone: 'Europe/Moscow',
+  });
+}
+
+function agentLabel(name, username) {
+  const base = escapeHtml(name || 'Без имени');
+  return username ? `${base} (@${escapeHtml(username)})` : base;
+}
+
+function confirmAction(text) {
+  if (tg && tg.showConfirm) {
+    return new Promise((resolve) => tg.showConfirm(text, resolve));
+  }
+  return Promise.resolve(window.confirm(text));
 }
 
 // PIN живёт только в памяти вкладки — не в localStorage, не в cookie.
@@ -23,6 +47,10 @@ function escapeHtml(str) {
 // потайной панели: удобство сессии против риска, что PIN осядет где-то
 // на устройстве.
 let sessionPin = null;
+
+const root = document.getElementById('admin-content');
+const tabBar = document.getElementById('admin-tabs');
+const titleEl = document.getElementById('admin-title');
 
 async function verifyPin(pin) {
   const res = await fetch('/api/admin/verify', {
@@ -33,7 +61,25 @@ async function verifyPin(pin) {
   return res.ok;
 }
 
-function renderGate(root) {
+async function adminGet(path, params = {}) {
+  const query = new URLSearchParams({ initData: initData(), pin: sessionPin, ...params });
+  const res = await fetch(`${path}?${query}`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+async function adminPost(path, payload) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ initData: initData(), pin: sessionPin, ...payload }),
+  });
+  return res.ok;
+}
+
+function renderGate() {
+  titleEl.textContent = 'Вход';
+  tabBar.hidden = true;
   root.innerHTML = `
     <div class="card">
       <div class="section-title">Вход</div>
@@ -61,7 +107,8 @@ function renderGate(root) {
     btn.disabled = false;
     if (ok) {
       sessionPin = pin;
-      renderDashboard(root);
+      tabBar.hidden = false;
+      openTab('money');
     } else {
       status.textContent = 'Неверный PIN или нет доступа с этого аккаунта';
       status.className = 'form-status error';
@@ -72,29 +119,27 @@ function renderGate(root) {
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
 }
 
-async function loadMoney() {
-  const url = `/api/admin/money?initData=${encodeURIComponent(initData())}&pin=${encodeURIComponent(sessionPin)}`;
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  return res.json();
+function sessionExpired() {
+  root.innerHTML = `<div class="section-hint">Сессия истекла или PIN устарел — обновите страницу.</div>`;
 }
 
-async function renderDashboard(root) {
-  root.innerHTML = `<div class="section-hint">Загрузка…</div>`;
-  const data = await loadMoney();
+// Заголовок раздела уже есть в шапке — в пустой карточке его не повторяем
+function emptyCard(hint) {
+  return `
+    <div class="card">
+      <div class="section-hint" style="margin-bottom:0;">${escapeHtml(hint)}</div>
+    </div>
+  `;
+}
 
-  if (!data) {
-    root.innerHTML = `<div class="section-hint">Сессия истекла или PIN устарел — обновите страницу.</div>`;
-    return;
-  }
+/* ---------- Деньги ---------- */
+
+async function renderMoney() {
+  const data = await adminGet('/api/admin/money');
+  if (!data) return sessionExpired();
 
   if (!data.agents.length) {
-    root.innerHTML = `
-      <div class="card">
-        <div class="section-title">Выплаты</div>
-        <div class="section-hint" style="margin-bottom:0;">Нечего выплачивать — все начисления закрыты.</div>
-      </div>
-    `;
+    root.innerHTML = emptyCard('Нечего выплачивать — все начисления закрыты.');
     return;
   }
 
@@ -109,9 +154,7 @@ async function renderDashboard(root) {
   const list = document.getElementById('agents-list');
   list.innerHTML = data.agents.map((a) => `
     <div class="card" data-agent="${a.user_id}">
-      <div class="section-title" style="font-size:16px;">
-        ${escapeHtml(a.full_name)}${a.username ? ` (@${escapeHtml(a.username)})` : ''}
-      </div>
+      <div class="section-title" style="font-size:16px;">${agentLabel(a.full_name, a.username)}</div>
       <ul class="video-list">
         ${a.items.map((it) => `<li>${escapeHtml(it.address)} — ${escapeHtml(it.kind_label)} — ${it.amount}₽</li>`).join('')}
       </ul>
@@ -123,21 +166,157 @@ async function renderDashboard(root) {
     btn.onclick = async () => {
       btn.disabled = true;
       btn.textContent = 'Отмечаю…';
-      try {
-        const res = await fetch('/api/admin/payout', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ initData: initData(), pin: sessionPin, agent_id: btn.dataset.agent }),
-        });
-        if (!res.ok) throw new Error('failed');
-        btn.closest('.card').remove();
-        if (!list.children.length) renderDashboard(root);
-      } catch (e) {
+      const ok = await adminPost('/api/admin/payout', { agent_id: btn.dataset.agent });
+      if (!ok) {
         btn.disabled = false;
         btn.textContent = 'Ошибка — повторить';
+        return;
       }
+      // Перерисовываем целиком, а не убираем карточку: иначе «К выплате
+      // всего» сверху останется со старой суммой.
+      renderMoney();
     };
   });
 }
 
-renderGate(document.getElementById('admin-content'));
+/* ---------- Баны ---------- */
+
+async function renderBans() {
+  const data = await adminGet('/api/admin/banned');
+  if (!data) return sessionExpired();
+
+  if (!data.agents.length) {
+    root.innerHTML = emptyCard('Удалённых агентов нет — вся команда на месте.');
+    return;
+  }
+
+  root.innerHTML = `
+    <div class="section-hint">
+      Удалённые агенты (${data.agents.length}). Разбан вернёт статус, отправит
+      человеку сообщение и новые инвайты в чаты.
+    </div>
+    <div id="bans-list"></div>
+  `;
+
+  const list = document.getElementById('bans-list');
+  list.innerHTML = data.agents.map((a) => `
+    <div class="card">
+      <div class="card-head">
+        <div class="section-title">${agentLabel(a.full_name, a.username)}</div>
+        <div class="badge rejected">удалён</div>
+      </div>
+      <ul class="fact-list">
+        <li class="fact-row"><span class="fact-text">Удалён</span><span class="fact-value">${fmtDate(a.removed_at)}</span></li>
+        <li class="fact-row"><span class="fact-text">Последняя активность</span><span class="fact-value">${fmtDate(a.last_active_at)}</span></li>
+        <li class="fact-row"><span class="fact-text">Передал объектов</span><span class="fact-value">${a.objects_count}</span></li>
+        <li class="fact-row"><span class="fact-text">Telegram id</span><span class="fact-value">${a.user_id}</span></li>
+      </ul>
+      <button class="btn-ghost unban-btn" data-agent="${a.user_id}"
+              data-name="${escapeHtml(a.full_name || 'агента')}">Разбанить</button>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('.unban-btn').forEach((btn) => {
+    btn.onclick = async () => {
+      const ok = await confirmAction(`Вернуть ${btn.dataset.name} в команду? Придут новые инвайты в чаты.`);
+      if (!ok) return;
+      btn.disabled = true;
+      btn.textContent = 'Возвращаю…';
+      const done = await adminPost('/api/admin/unban', { agent_id: btn.dataset.agent });
+      if (!done) {
+        btn.disabled = false;
+        btn.textContent = 'Ошибка — повторить';
+        return;
+      }
+      renderBans();  // чтобы счётчик в шапке раздела не остался старым
+    };
+  });
+}
+
+/* ---------- Квартиры ---------- */
+
+const FLAT_FILTERS = [
+  { key: 'all', label: 'Всего' },
+  { key: 'pending', label: 'На проверке' },
+  { key: 'in_progress', label: 'В работе' },
+  { key: 'closed', label: 'Сдано' },
+  { key: 'rejected', label: 'Отклонено' },
+  { key: 'failed', label: 'Сорвалось' },
+];
+
+let flatFilter = 'all';
+
+function flatFact(label, value, href) {
+  if (!value) return '';
+  const shown = href
+    ? `<a href="${escapeHtml(href)}">${escapeHtml(value)}</a>`
+    : escapeHtml(value);
+  return `<li class="fact-row"><span class="fact-text">${label}</span><span class="fact-value">${shown}</span></li>`;
+}
+
+async function renderFlats() {
+  const params = flatFilter === 'all' ? {} : { status: flatFilter };
+  const data = await adminGet('/api/admin/objects', params);
+  if (!data) return sessionExpired();
+
+  const pills = FLAT_FILTERS.map((f) => `
+    <div class="count-pill filter${f.key === flatFilter ? ' active' : ''}" data-filter="${f.key}">
+      <div class="n">${data.counts[f.key] || 0}</div>
+      <div class="label">${f.label}</div>
+    </div>
+  `).join('');
+
+  const cards = data.objects.length
+    ? data.objects.map((o) => `
+        <div class="card">
+          <div class="card-head">
+            <div class="section-title">${escapeHtml(o.address || 'Без адреса')}</div>
+            <div class="badge ${o.status}">${escapeHtml(o.status_label)}</div>
+          </div>
+          <div class="card-sub">${agentLabel(o.agent_name, o.agent_username)} · ${fmtDate(o.created_at)}</div>
+          <ul class="fact-list">
+            ${flatFact('Цена', o.price)}
+            ${flatFact('Залог', o.deposit)}
+            ${flatFact('Собственник', o.owner_name)}
+            ${flatFact('Телефон', o.owner_phone, `tel:${(o.owner_phone || '').replace(/[^+\d]/g, '')}`)}
+            ${flatFact('Показ', o.showing_time)}
+            ${flatFact('Кого рассматривает', o.tenant_criteria)}
+            ${flatFact('Комментарий', o.notes)}
+          </ul>
+        </div>
+      `).join('')
+    : emptyCard('В этом статусе объектов нет.');
+
+  root.innerHTML = `<div class="counts-row">${pills}</div>${cards}`;
+
+  root.querySelectorAll('.count-pill.filter').forEach((pill) => {
+    pill.onclick = () => {
+      flatFilter = pill.dataset.filter;
+      renderFlats();
+    };
+  });
+}
+
+/* ---------- Роутер вкладок ---------- */
+
+const TABS = {
+  money: { title: 'Выплаты агентам', render: renderMoney },
+  bans: { title: 'Баны', render: renderBans },
+  flats: { title: 'Квартиры агентов', render: renderFlats },
+};
+
+async function openTab(name) {
+  const tab = TABS[name];
+  titleEl.textContent = tab.title;
+  tabBar.querySelectorAll('.tab-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.tab === name);
+  });
+  root.innerHTML = `<div class="section-hint">Загрузка…</div>`;
+  await tab.render();
+}
+
+tabBar.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.onclick = () => openTab(btn.dataset.tab);
+});
+
+renderGate();

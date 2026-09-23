@@ -378,3 +378,49 @@ def list_unpaid_payments_for_agent(agent_user_id):
             ORDER BY p.created_at
         """, (agent_user_id,)).fetchall()
         return [dict(row) for row in rows]
+
+
+def list_removed_candidates():
+    """Удалённые (soft-delete) агенты для раздела «Баны» в панели куратора.
+
+    Тянем заодно число переданных объектов — куратор по нему понимает, кого
+    именно восстанавливает, не переключаясь на другой раздел.
+    """
+    with _connect() as conn:
+        rows = conn.execute("""
+            SELECT c.*,
+                   (SELECT COUNT(*) FROM objects o WHERE o.agent_user_id = c.user_id)
+                       AS objects_count
+            FROM candidates c
+            WHERE c.status = 'removed'
+            ORDER BY c.updated_at DESC
+        """).fetchall()
+        return [dict(row) for row in rows]
+
+
+def list_all_objects(status=None, limit=300):
+    """Все квартиры всех агентов для панели куратора.
+
+    LEFT JOIN, а не INNER: объект не должен пропадать из списка, если строку
+    агента почему-то не найти — адрес и телефон собственника куратору нужны
+    в любом случае.
+    """
+    sql = """
+        SELECT o.*, c.full_name AS agent_name, c.username AS agent_username
+        FROM objects o
+        LEFT JOIN candidates c ON c.user_id = o.agent_user_id
+    """
+    params = []
+    if status:
+        sql += " WHERE o.status = ?"
+        params.append(status)
+    sql += " ORDER BY o.id DESC LIMIT ?"
+    params.append(limit)
+    with _connect() as conn:
+        return [dict(row) for row in conn.execute(sql, params)]
+
+
+def count_all_objects_by_status():
+    with _connect() as conn:
+        rows = conn.execute("SELECT status, COUNT(*) AS n FROM objects GROUP BY status").fetchall()
+        return {row["status"]: row["n"] for row in rows}

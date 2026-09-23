@@ -616,3 +616,88 @@ html, body {
   font-size: 12px;
   color: var(--body-text);
 }
+
+/* ===== Панель куратора (admin.html) =====
+   Разделы «Деньги / Баны / Квартиры» живут в той же нижней панели, что и
+   вкладки агента — намеренно один и тот же компонент, чтобы куратор не
+   переучивался, переходя из мини-аппа в панель. */
+
+#admin-content {
+  flex: 1;
+  padding: 8px 16px 150px;
+}
+
+.tab-bar[hidden] {
+  display: none;
+}
+
+/* Плитки-счётчики в «Квартирах» работают ещё и фильтром по статусу */
+.count-pill.filter.active {
+  border-color: var(--text);
+  background: #131313;
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.card-head .section-title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.card-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--hint);
+  margin-top: 6px;
+}
+
+.badge {
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--hint);
+  white-space: nowrap;
+}
+
+.badge.pending { color: #e8c468; border-color: #4a3f1c; }
+.badge.in_progress { color: var(--success); border-color: #1f4a30; }
+.badge.closed { color: #000000; background: var(--success); border-color: var(--success); }
+.badge.rejected, .badge.failed { color: var(--danger); border-color: #4a1f1f; }
+
+.fact-row .fact-value a {
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Вторичная кнопка — для действий, которые не хочется делать случайно
+   (разбан шлёт агенту сообщение и новые инвайты) */
+.btn-ghost {
+  width: 100%;
+  margin-top: 14px;
+  padding: 12px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.btn-ghost:disabled {
+  opacity: 0.4;
+}

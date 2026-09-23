@@ -115,6 +115,78 @@ async def handle_admin_payout(request):
     return web.json_response({"paid": amount})
 
 
+_OBJECT_STATUS_LABELS = {
+    "pending": "на проверке",
+    "in_progress": "в работе",
+    "closed": "сдана",
+    "rejected": "отклонена",
+    "failed": "сорвалась",
+}
+
+
+async def handle_admin_banned(request):
+    _authenticate_admin(request)
+    agents = [
+        {
+            "user_id": c["user_id"],
+            "full_name": c["full_name"],
+            "username": c["username"],
+            "objects_count": c["objects_count"],
+            "removed_at": c["updated_at"],
+            "last_active_at": c["last_active_at"],
+        }
+        for c in db.list_removed_candidates()
+    ]
+    return web.json_response({"agents": agents})
+
+
+async def handle_admin_unban(request):
+    body = await request.json()
+    _authenticate_admin(request, body)
+    agent_id = int(body["agent_id"])
+    restore_cb = request.app.get("restore_agent_cb")
+    if not restore_cb:
+        raise web.HTTPServiceUnavailable(text="restore callback is not wired")
+    # Восстановление живёт в bot.py (статус + новые инвайты в чаты), сюда
+    # приходит колбэком — импортировать bot.py отсюда нельзя, он сам
+    # импортирует этот модуль.
+    cand = await restore_cb(agent_id)
+    if not cand:
+        raise web.HTTPNotFound(text="nothing to restore")
+    return web.json_response({"ok": True})
+
+
+async def handle_admin_objects(request):
+    _authenticate_admin(request)
+    status = request.query.get("status") or None
+    if status and status not in _OBJECT_STATUS_LABELS:
+        raise web.HTTPBadRequest(text="unknown status")
+
+    objects = [
+        {
+            "id": o["id"],
+            "status": o["status"],
+            "status_label": _OBJECT_STATUS_LABELS.get(o["status"], o["status"]),
+            "address": o["address"],
+            "price": o["price"],
+            "deposit": o["deposit"],
+            "owner_name": o["owner_name"],
+            "owner_phone": o["owner_phone"],
+            "showing_time": o["showing_time"],
+            "tenant_criteria": o["tenant_criteria"],
+            "notes": o["notes"],
+            "created_at": o["created_at"],
+            "agent_user_id": o["agent_user_id"],
+            "agent_name": o["agent_name"],
+            "agent_username": o["agent_username"],
+        }
+        for o in db.list_all_objects(status)
+    ]
+    counts = db.count_all_objects_by_status()
+    counts["all"] = sum(counts.values())
+    return web.json_response({"objects": objects, "counts": counts})
+
+
 async def handle_config(request):
     return web.json_response({
         "checklist": WEBAPP.get("checklist", []),
@@ -233,17 +305,22 @@ async def handle_start_training(request):
     return web.json_response({"ok": True})
 
 
-def create_app(bot, bot_token: str, start_training_cb, admin_pin: str = None) -> web.Application:
+def create_app(bot, bot_token: str, start_training_cb, admin_pin: str = None,
+               restore_agent_cb=None) -> web.Application:
     app = web.Application()
     app["bot"] = bot
     app["bot_token"] = bot_token
     app["start_training_cb"] = start_training_cb
     app["admin_pin"] = admin_pin
+    app["restore_agent_cb"] = restore_agent_cb
     app.router.add_get("/", handle_index)
     app.router.add_get("/admin", handle_admin_page)
     app.router.add_post("/api/admin/verify", handle_admin_verify)
     app.router.add_get("/api/admin/money", handle_admin_money)
     app.router.add_post("/api/admin/payout", handle_admin_payout)
+    app.router.add_get("/api/admin/banned", handle_admin_banned)
+    app.router.add_post("/api/admin/unban", handle_admin_unban)
+    app.router.add_get("/api/admin/objects", handle_admin_objects)
     app.router.add_get("/api/config", handle_config)
     app.router.add_get("/api/counts", handle_counts)
     app.router.add_get("/api/finances", handle_finances)
