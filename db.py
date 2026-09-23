@@ -81,6 +81,30 @@ def init_db():
         if "office_pin_message_id" not in existing:
             conn.execute("ALTER TABLE candidates ADD COLUMN office_pin_message_id INTEGER")
 
+        # Тренажёр звонка. Диалог целиком лежит в messages JSON-ом: читать его
+        # построчно неоткуда, а куратору нужен весь разговор разом. Разбор
+        # (scores/verdict/advice) пишется один раз при завершении.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS trainer_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_user_id INTEGER NOT NULL,
+                persona_id TEXT NOT NULL,
+                messages TEXT DEFAULT '[]',
+                turns INTEGER DEFAULT 0,
+                score INTEGER,
+                scores TEXT,
+                verdict TEXT,
+                advice TEXT,
+                status TEXT DEFAULT 'active',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                finished_at TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_trainer_agent "
+            "ON trainer_sessions (agent_user_id, created_at)"
+        )
+
 
 def get_candidate(user_id):
     with _connect() as conn:
@@ -424,3 +448,142 @@ def count_all_objects_by_status():
     with _connect() as conn:
         rows = conn.execute("SELECT status, COUNT(*) AS n FROM objects GROUP BY status").fetchall()
         return {row["status"]: row["n"] for row in rows}
+
+
+# ---------- Тренажёр звонка ----------
+
+def _week_start_iso():
+    """Понедельник текущей недели — та же нарезка, что у графика начислений."""
+    today = datetime.date.today()
+    return (today - datetime.timedelta(days=today.weekday())).isoformat()
+
+
+def create_trainer_session(agent_user_id, persona_id):
+    with _connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO trainer_sessions (agent_user_id, persona_id) VALUES (?, ?)",
+            (agent_user_id, persona_id),
+        )
+        return cur.lastrowid
+
+
+def get_trainer_session(session_id):
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM trainer_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_active_trainer_session(agent_user_id):
+    """Незавершённый диалог агента, если он закрыл вкладку и вернулся."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM trainer_sessions WHERE agent_user_id = ? AND status = 'active' "
+            "ORDER BY id DESC LIMIT 1",
+            (agent_user_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def save_trainer_messages(session_id, messages, turns):
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE trainer_sessions SET messages = ?, turns = ? WHERE id = ?",
+            (json.dumps(messages, ensure_ascii=False), turns, session_id),
+        )
+
+
+def finish_trainer_session(session_id, score, scores, verdict, advice):
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE trainer_sessions
+            SET status = 'finished', score = ?, scores = ?, verdict = ?, advice = ?,
+                finished_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                score,
+                json.dumps(scores, ensure_ascii=False),
+                verdict,
+                json.dumps(advice, ensure_ascii=False),
+                session_id,
+            ),
+        )
+
+
+def abandon_trainer_session(session_id):
+    """Агент бросил диалог, не дойдя до разбора — в зачёт не идёт."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE trainer_sessions SET status = 'abandoned', finished_at = CURRENT_TIMESTAMP "
+            "WHERE id = ?",
+            (session_id,),
+        )
+
+
+def count_trainer_sessions_today(agent_user_id):
+    """Считаем все начатые за сутки, а не только завершённые — иначе дневной
+    лимит обходится тем, что диалог каждый раз бросают на середине."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM trainer_sessions "
+            "WHERE agent_user_id = ? AND date(created_at) = date('now')",
+            (agent_user_id,),
+        ).fetchone()
+        return row["n"]
+
+
+def list_trainer_sessions_for_agent(agent_user_id, limit=20):
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM trainer_sessions WHERE agent_user_id = ? AND status = 'finished' "
+            "ORDER BY id DESC LIMIT ?",
+            (agent_user_id, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def trainer_leaderboard(min_sessions=3, weekly=True):
+    """Таблица лидеров по СРЕДНЕМУ баллу, а не по сумме: иначе побеждает тот,
+    кто просто натренировался больше всех. Порог min_sessions отсекает тех, кто
+    поймал один удачный диалог и замер на первом месте."""
+    sql = """
+        SELECT t.agent_user_id,
+               c.full_name, c.username,
+               COUNT(*) AS sessions,
+               ROUND(AVG(t.score)) AS avg_score,
+               MAX(t.score) AS best_score
+        FROM trainer_sessions t
+        LEFT JOIN candidates c ON c.user_id = t.agent_user_id
+        WHERE t.status = 'finished' AND t.score IS NOT NULL
+    """
+    params = []
+    if weekly:
+        sql += " AND date(t.finished_at) >= ?"
+        params.append(_week_start_iso())
+    sql += """
+        GROUP BY t.agent_user_id
+        HAVING COUNT(*) >= ?
+        ORDER BY avg_score DESC, sessions DESC
+    """
+    params.append(min_sessions)
+    with _connect() as conn:
+        return [dict(row) for row in conn.execute(sql, params)]
+
+
+def list_all_trainer_sessions(limit=100):
+    """Все тренировки для панели куратора — с именем агента."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT t.*, c.full_name AS agent_name, c.username AS agent_username
+            FROM trainer_sessions t
+            LEFT JOIN candidates c ON c.user_id = t.agent_user_id
+            WHERE t.status = 'finished'
+            ORDER BY t.id DESC LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]

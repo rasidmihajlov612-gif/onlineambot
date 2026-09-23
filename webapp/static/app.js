@@ -403,8 +403,307 @@ async function renderFinances(root) {
   `;
 }
 
+
+/* ==================== Тренажёр звонка ==================== */
+
+// Состояние текущего диалога держим в памяти вкладки: на сервере он и так
+// сохраняется после каждой реплики, а перерисовывать экран из ответа сервера
+// каждый раз — лишний запрос на медленном мобильном интернете.
+let trainer = null;
+
+async function trainerGet(path) {
+  const res = await fetch(`${path}?initData=${encodeURIComponent(initData())}`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+async function trainerPost(path, payload) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ initData: initData(), ...payload }),
+  });
+  if (res.ok) return { ok: true, data: await res.json() };
+  return { ok: false, status: res.status, text: await res.text() };
+}
+
+function noticeCard(text) {
+  return `<div class="card"><div class="section-hint" style="margin-bottom:0;">${escapeHtml(text)}</div></div>`;
+}
+
+async function renderPractice(root) {
+  const cfg = await trainerGet('/api/trainer/config');
+  if (!cfg) {
+    root.innerHTML = noticeCard('Не удалось загрузить тренажёр. Обновите страницу.');
+    return;
+  }
+  if (cfg.active) {
+    trainer = {
+      sessionId: cfg.active.session_id,
+      persona: cfg.active.persona,
+      messages: cfg.active.messages,
+      turns: cfg.active.turns,
+      maxTurns: cfg.max_turns,
+    };
+    renderDialog(root);
+    return;
+  }
+  renderPracticeHome(root, cfg);
+}
+
+async function renderPracticeHome(root, cfg) {
+  const board = await trainerGet('/api/trainer/leaderboard');
+
+  const personas = cfg.personas.map((p) => `
+    <button class="persona-card" data-persona="${escapeAttr(p.id)}">
+      <div class="who">
+        <div class="name">${escapeHtml(p.name)}</div>
+        <div class="desc">${escapeHtml(p.desc)}</div>
+      </div>
+      <div class="go">→</div>
+    </button>
+  `).join('');
+
+  const blocked = !cfg.available || cfg.left_today <= 0;
+  const blockedNote = !cfg.available
+    ? cfg.offline_notice
+    : (cfg.left_today <= 0
+        ? `На сегодня тренировки закончились (лимит ${cfg.daily_limit} в день). Возвращайтесь завтра.`
+        : '');
+
+  root.innerHTML = `
+    <div class="card">
+      <div class="section-title">Тренажёр звонка</div>
+      <div class="section-hint" style="margin-bottom:0;">${escapeHtml(cfg.intro)}</div>
+    </div>
+    ${blockedNote ? noticeCard(blockedNote) : ''}
+    <div class="eyebrow-label">Кому звоним · осталось сегодня ${cfg.left_today} из ${cfg.daily_limit}</div>
+    <div id="persona-list" ${blocked ? 'style="opacity:0.4;pointer-events:none;"' : ''}>${personas}</div>
+    <div id="board-block"></div>
+  `;
+
+  renderBoard(document.getElementById('board-block'), board);
+
+  root.querySelectorAll('.persona-card').forEach((btn) => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      const res = await trainerPost('/api/trainer/start', { persona_id: btn.dataset.persona });
+      if (!res.ok) {
+        btn.disabled = false;
+        root.insertAdjacentHTML('afterbegin', noticeCard(res.text || 'Не получилось начать разговор.'));
+        return;
+      }
+      trainer = {
+        sessionId: res.data.session_id,
+        persona: res.data.persona,
+        messages: res.data.messages,
+        turns: 0,
+        maxTurns: cfg.max_turns,
+      };
+      renderDialog(root);
+    };
+  });
+}
+
+function renderBoard(host, board) {
+  // Порог живёт в training.yaml и приезжает вместе с таблицей, а не из конфига
+  const min = (board && board.min_sessions) || 3;
+  if (!board || !board.board.length) {
+    host.innerHTML = `
+      <div class="section-title">Таблица недели</div>
+      ${noticeCard(`Пока пусто. В зачёт идут агенты, у которых на этой неделе есть хотя бы ${min} завершённых ${plural(min, 'разговор', 'разговора', 'разговоров')}.`)}
+    `;
+    return;
+  }
+
+  const rows = board.board.map((r) => `
+    <div class="board-row${r.me ? ' me' : ''}">
+      <div class="place">${r.place}</div>
+      <div class="who">
+        ${escapeHtml(r.full_name || 'Агент')}${r.me ? ' — вы' : ''}
+        <div class="sub">${r.sessions} ${plural(r.sessions, 'разговор', 'разговора', 'разговоров')} · лучший ${r.best_score}</div>
+      </div>
+      <div class="avg">${r.avg_score}</div>
+    </div>
+  `).join('');
+
+  const history = (board.history || []).length
+    ? `<div class="card">
+         <div class="section-title" style="font-size:15px;">Ваши последние разговоры</div>
+         ${board.history.map((h) => `
+           <div class="fact-row">
+             <span class="fact-text">${escapeHtml(h.persona)}</span>
+             <span class="fact-value">${h.score} ${plural(h.score, 'балл', 'балла', 'баллов')}</span>
+           </div>`).join('')}
+       </div>`
+    : '';
+
+  host.innerHTML = `
+    <div class="section-title">Таблица недели</div>
+    <div class="card">${rows}</div>
+    <div class="section-hint">Считается средний балл, а не сумма — брать количеством бесполезно.</div>
+    ${history}
+  `;
+}
+
+// "3 разговоров" режет глаз — русские числительные без этого не обходятся
+function plural(n, one, few, many) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
+
+function bubbleHtml(m) {
+  return `<div class="bubble ${m.role === 'owner' ? 'owner' : 'agent'}">${escapeHtml(m.text)}</div>`;
+}
+
+function renderDialog(root) {
+  const left = trainer.maxTurns - trainer.turns;
+  root.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <div class="section-title">${escapeHtml(trainer.persona ? trainer.persona.name : 'Собственник')}</div>
+      </div>
+      <div class="section-hint" style="margin-bottom:0;">${escapeHtml(trainer.persona ? trainer.persona.desc : '')}</div>
+    </div>
+    <div class="chat" id="chat">${trainer.messages.map(bubbleHtml).join('')}</div>
+    <div class="turns-left" id="turns-left">Осталось ${left} ${plural(left, 'реплика', 'реплики', 'реплик')}</div>
+    <div class="chat-input">
+      <textarea id="reply-input" rows="1" placeholder="Что говорите?"></textarea>
+      <button id="send-btn" title="Отправить">➤</button>
+    </div>
+    <button class="btn-ghost" id="finish-btn">Завершить и получить разбор</button>
+  `;
+
+  const input = document.getElementById('reply-input');
+  const sendBtn = document.getElementById('send-btn');
+  const finishBtn = document.getElementById('finish-btn');
+  const chat = document.getElementById('chat');
+
+  const scrollDown = () => window.scrollTo(0, document.body.scrollHeight);
+  scrollDown();
+
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  });
+
+  const send = async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    input.style.height = 'auto';
+    sendBtn.disabled = true;
+    finishBtn.disabled = true;
+
+    trainer.messages.push({ role: 'agent', text });
+    chat.insertAdjacentHTML('beforeend', bubbleHtml({ role: 'agent', text }));
+    chat.insertAdjacentHTML('beforeend', '<div class="bubble owner typing" id="typing">печатает…</div>');
+    scrollDown();
+
+    const res = await trainerPost('/api/trainer/reply', { session_id: trainer.sessionId, text });
+    const typing = document.getElementById('typing');
+    if (typing) typing.remove();
+
+    if (!res.ok) {
+      chat.insertAdjacentHTML('beforeend',
+        `<div class="bubble owner typing">${escapeHtml(res.text || 'Собеседник не отвечает.')}</div>`);
+      sendBtn.disabled = false;
+      finishBtn.disabled = false;
+      scrollDown();
+      return;
+    }
+
+    if (res.data.finished) {
+      renderReview(root, res.data);
+      return;
+    }
+
+    trainer.turns = res.data.turns;
+    trainer.messages.push({ role: 'owner', text: res.data.reply });
+    chat.insertAdjacentHTML('beforeend', bubbleHtml({ role: 'owner', text: res.data.reply }));
+    const left = trainer.maxTurns - trainer.turns;
+    document.getElementById('turns-left').textContent =
+      `Осталось ${left} ${plural(left, 'реплика', 'реплики', 'реплик')}`;
+    sendBtn.disabled = false;
+    finishBtn.disabled = false;
+    input.focus();
+    scrollDown();
+  };
+
+  sendBtn.onclick = send;
+  input.addEventListener('keydown', (e) => {
+    // Enter отправляет, Shift+Enter — перенос строки, как в мессенджере
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  });
+
+  finishBtn.onclick = async () => {
+    finishBtn.disabled = true;
+    sendBtn.disabled = true;
+    finishBtn.textContent = 'Разбираю разговор…';
+    const res = await trainerPost('/api/trainer/finish', { session_id: trainer.sessionId });
+    if (!res.ok) {
+      finishBtn.disabled = false;
+      sendBtn.disabled = false;
+      finishBtn.textContent = 'Завершить и получить разбор';
+      root.insertAdjacentHTML('afterbegin', noticeCard(res.text || 'Разбор не получился, попробуйте ещё раз.'));
+      return;
+    }
+    renderReview(root, res.data);
+  };
+}
+
+async function renderReview(root, review) {
+  trainer = null;
+
+  if (review.skipped) {
+    showTab('practice');
+    return;
+  }
+
+  const cfg = await trainerGet('/api/trainer/config');
+  const rubric = (cfg && cfg.rubric) || [];
+  const rows = rubric.map((r) => {
+    const got = (review.scores || {})[r.id] || 0;
+    const full = got >= r.weight;
+    return `
+      <div class="score-row ${full ? 'hit' : 'miss'}">
+        <span class="label">${escapeHtml(r.label)}</span>
+        <span class="pts">${got} / ${r.weight}</span>
+      </div>
+    `;
+  }).join('');
+
+  const advice = (review.advice || []).map((a) => `<li>${escapeHtml(a)}</li>`).join('');
+
+  root.innerHTML = `
+    <div class="card">
+      <div class="eyebrow-label">Ваш балл</div>
+      <div class="finance-amount">${review.score}</div>
+      <div class="section-hint" style="margin-bottom:0;">${escapeHtml(review.verdict || '')}</div>
+    </div>
+    <div class="card">
+      <div class="section-title" style="font-size:16px;">Разбор по пунктам</div>
+      ${rows}
+    </div>
+    ${advice ? `<div class="card">
+      <div class="section-title" style="font-size:16px;">Что поправить</div>
+      <ul class="video-list">${advice}</ul>
+    </div>` : ''}
+    <button class="btn-primary" id="again-btn">Ещё разговор</button>
+  `;
+
+  document.getElementById('again-btn').onclick = () => showTab('practice');
+}
+
 const TABS = {
   training: renderTraining,
+  practice: renderPractice,
   start: renderStart,
   handoff: renderHandoff,
   finances: renderFinances,

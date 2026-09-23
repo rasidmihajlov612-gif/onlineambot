@@ -701,3 +701,222 @@ html, body {
 .btn-ghost:disabled {
   opacity: 0.4;
 }
+
+/* ===== Тренажёр звонка (вкладка "Практика") ===== */
+
+/* Шесть кнопок в панели вместо пяти: на 360px каждой достаётся 60px, и при
+   базовых 38px иконке с подписью "Поддержка" там уже не разойтись. */
+.tab-bar.compact .tab-btn {
+  padding: 9px 1px 4px;
+  font-size: 9px;
+  letter-spacing: 0.2px;
+}
+
+.tab-bar.compact .tab-btn .icon {
+  font-size: 26px;
+}
+
+.persona-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: var(--secondary-bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+}
+
+.persona-card .who {
+  flex: 1;
+  min-width: 0;
+}
+
+.persona-card .name {
+  font-family: 'Unbounded', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+
+.persona-card .desc {
+  font-size: 12.5px;
+  color: var(--body-text);
+  line-height: 1.4;
+}
+
+.persona-card .go {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 18px;
+  color: var(--hint);
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 14px;
+}
+
+.bubble {
+  max-width: 84%;
+  padding: 11px 14px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bubble.owner {
+  align-self: flex-start;
+  background: var(--secondary-bg);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 5px;
+}
+
+.bubble.agent {
+  align-self: flex-end;
+  background: #ffffff;
+  color: #000000;
+  border-bottom-right-radius: 5px;
+}
+
+.bubble.typing {
+  color: var(--hint);
+  font-style: italic;
+}
+
+.chat-input {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin-bottom: 10px;
+}
+
+.chat-input textarea {
+  flex: 1;
+  min-height: 46px;
+  max-height: 120px;
+  padding: 12px 14px;
+  background: var(--secondary-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  resize: none;
+}
+
+.chat-input textarea:focus {
+  outline: none;
+  border-color: #3a3a3a;
+}
+
+.chat-input button {
+  flex-shrink: 0;
+  width: 46px;
+  height: 46px;
+  border: none;
+  border-radius: 14px;
+  background: var(--button);
+  color: var(--button-text);
+  font-size: 18px;
+}
+
+.chat-input button:disabled {
+  opacity: 0.4;
+}
+
+.turns-left {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--hint);
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.score-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13.5px;
+}
+
+.score-row:last-child {
+  border-bottom: none;
+}
+
+.score-row .pts {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.score-row.miss .label { color: var(--hint); }
+.score-row.miss .pts { color: var(--danger); }
+.score-row.hit .pts { color: var(--success); }
+
+.board-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.board-row:last-child {
+  border-bottom: none;
+}
+
+.board-row .place {
+  width: 26px;
+  font-family: 'Unbounded', sans-serif;
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--hint);
+}
+
+.board-row.me .place,
+.board-row.me .who {
+  color: var(--text);
+}
+
+.board-row.me {
+  background: #131313;
+  border-radius: 10px;
+  padding-left: 10px;
+  padding-right: 10px;
+  margin: 0 -10px;
+}
+
+.board-row .who {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--body-text);
+}
+
+.board-row .who .sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  color: var(--hint);
+  margin-top: 2px;
+}
+
+.board-row .avg {
+  font-family: 'Unbounded', sans-serif;
+  font-size: 17px;
+  font-weight: 800;
+}

@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import logging
 import time
 from pathlib import Path
 from urllib.parse import parse_qsl
@@ -9,7 +10,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiohttp import web
 
 import db
-from config_loader import ADMISSION, PAYMENTS, WEBAPP, get_step, step_progress
+import llm
+from config_loader import ADMISSION, PAYMENTS, TRAINER, WEBAPP, get_step, step_progress
 
 WEBAPP_DIR = Path(__file__).parent / "webapp"
 _INIT_DATA_MAX_AGE = 86400  # Telegram recommends treating older initData as stale
@@ -187,6 +189,276 @@ async def handle_admin_objects(request):
     return web.json_response({"objects": objects, "counts": counts})
 
 
+# ============================================================
+# Тренажёр звонка
+# ============================================================
+
+def _persona(persona_id):
+    for p in TRAINER.get("personas", []):
+        if p["id"] == persona_id:
+            return p
+    return None
+
+
+def _public_persona(p):
+    return {"id": p["id"], "name": p["name"], "desc": p["desc"]}
+
+
+def _rubric_for_prompt():
+    return "\n".join(
+        f"- {r['id']} (до {r['weight']} баллов): {r['label']} — {r['hint']}"
+        for r in TRAINER.get("rubric", [])
+    )
+
+
+def _dialogue_for_prompt(messages):
+    who = {"agent": "Агент", "owner": "Собственник"}
+    return "\n".join(f"{who.get(m['role'], m['role'])}: {m['text']}" for m in messages)
+
+
+def _roleplay_messages(persona, messages):
+    """История для модели: системный промпт с характером + реплики, где
+    собственник — assistant, агент — user."""
+    system = TRAINER["roleplay_prompt"].format(
+        name=persona["name"], behavior=persona["behavior"]
+    )
+    out = [{"role": "system", "content": system}]
+    for m in messages:
+        out.append({
+            "role": "assistant" if m["role"] == "owner" else "user",
+            "content": m["text"],
+        })
+    return out
+
+
+def _offline():
+    raise web.HTTPServiceUnavailable(
+        text=TRAINER.get("offline_notice", "Тренажёр сейчас недоступен."),
+        content_type="text/plain",
+    )
+
+
+async def _review(client, messages):
+    """Разбор диалога. Баллы режем по весам критериев: модель периодически
+    выдаёт 30 там, где максимум 20."""
+    prompt = TRAINER["review_prompt"].format(
+        rubric=_rubric_for_prompt(), dialogue=_dialogue_for_prompt(messages)
+    )
+    raw = await client.chat(
+        [{"role": "user", "content": prompt}], temperature=0.2, max_tokens=700
+    )
+    data = llm.parse_json_reply(raw)
+
+    scores, total = {}, 0
+    for r in TRAINER.get("rubric", []):
+        try:
+            value = int(data.get("scores", {}).get(r["id"], 0))
+        except (TypeError, ValueError):
+            value = 0
+        value = max(0, min(value, r["weight"]))
+        scores[r["id"]] = value
+        total += value
+
+    advice = data.get("advice") or []
+    if isinstance(advice, str):
+        advice = [advice]
+    return total, scores, str(data.get("verdict", ""))[:500], [str(a)[:500] for a in advice[:3]]
+
+
+def _session_or_404(request, user_id, body):
+    session = db.get_trainer_session(int(body["session_id"]))
+    if not session or session["agent_user_id"] != user_id:
+        raise web.HTTPNotFound(text="session not found")
+    return session
+
+
+async def handle_trainer_config(request):
+    user = _authenticate(request)
+    used = db.count_trainer_sessions_today(user["id"])
+    limit = TRAINER.get("daily_limit", 3)
+    active = db.get_active_trainer_session(user["id"])
+
+    payload = {
+        "intro": TRAINER.get("intro", ""),
+        "personas": [_public_persona(p) for p in TRAINER.get("personas", [])],
+        "rubric": [{"id": r["id"], "label": r["label"], "weight": r["weight"]}
+                   for r in TRAINER.get("rubric", [])],
+        "max_turns": TRAINER.get("max_turns", 10),
+        "left_today": max(0, limit - used),
+        "daily_limit": limit,
+        "available": request.app.get("llm") is not None,
+        "offline_notice": TRAINER.get("offline_notice", ""),
+        "active": None,
+    }
+    if active:
+        persona = _persona(active["persona_id"])
+        payload["active"] = {
+            "session_id": active["id"],
+            "persona": _public_persona(persona) if persona else None,
+            "messages": json.loads(active["messages"]),
+            "turns": active["turns"],
+        }
+    return web.json_response(payload)
+
+
+async def handle_trainer_start(request):
+    body = await request.json()
+    user = _authenticate(request, body)
+    if not request.app.get("llm"):
+        _offline()
+
+    persona = _persona(body.get("persona_id"))
+    if not persona:
+        raise web.HTTPBadRequest(text="unknown persona")
+
+    if db.count_trainer_sessions_today(user["id"]) >= TRAINER.get("daily_limit", 3):
+        raise web.HTTPTooManyRequests(text="daily limit reached")
+
+    # Незакрытый диалог помечаем брошенным, чтобы не копились активные.
+    previous = db.get_active_trainer_session(user["id"])
+    if previous:
+        db.abandon_trainer_session(previous["id"])
+
+    session_id = db.create_trainer_session(user["id"], persona["id"])
+    messages = [{"role": "owner", "text": persona["opening"]}]
+    db.save_trainer_messages(session_id, messages, 0)
+    db.touch_active(user["id"])
+
+    return web.json_response({
+        "session_id": session_id,
+        "persona": _public_persona(persona),
+        "messages": messages,
+    })
+
+
+async def handle_trainer_reply(request):
+    body = await request.json()
+    user = _authenticate(request, body)
+    client = request.app.get("llm")
+    if not client:
+        _offline()
+
+    session = _session_or_404(request, user["id"], body)
+    if session["status"] != "active":
+        raise web.HTTPConflict(text="session is finished")
+
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise web.HTTPBadRequest(text="empty reply")
+
+    persona = _persona(session["persona_id"])
+    messages = json.loads(session["messages"])
+    messages.append({"role": "agent", "text": text[:1000]})
+    turns = session["turns"] + 1
+    db.save_trainer_messages(session["id"], messages, turns)
+    db.touch_active(user["id"])
+
+    if turns >= TRAINER.get("max_turns", 10):
+        return await _finish_session(client, session["id"], messages)
+
+    try:
+        reply = await client.chat(_roleplay_messages(persona, messages), max_tokens=200)
+    except llm.LLMUnavailable as e:
+        logging.warning("trainer roleplay failed: %s", e)
+        _offline()
+
+    messages.append({"role": "owner", "text": reply})
+    db.save_trainer_messages(session["id"], messages, turns)
+    return web.json_response({"reply": reply, "turns": turns, "finished": False})
+
+
+async def _finish_session(client, session_id, messages):
+    try:
+        score, scores, verdict, advice = await _review(client, messages)
+    except llm.LLMUnavailable as e:
+        logging.warning("trainer review failed: %s", e)
+        _offline()
+
+    db.finish_trainer_session(session_id, score, scores, verdict, advice)
+    return web.json_response({
+        "finished": True,
+        "score": score,
+        "scores": scores,
+        "verdict": verdict,
+        "advice": advice,
+    })
+
+
+async def handle_trainer_finish(request):
+    body = await request.json()
+    user = _authenticate(request, body)
+    client = request.app.get("llm")
+    if not client:
+        _offline()
+
+    session = _session_or_404(request, user["id"], body)
+    if session["status"] != "active":
+        raise web.HTTPConflict(text="session is finished")
+
+    messages = json.loads(session["messages"])
+    if not any(m["role"] == "agent" for m in messages):
+        # Разговора не было — оценивать нечего, просто закрываем.
+        db.abandon_trainer_session(session["id"])
+        return web.json_response({"finished": True, "skipped": True})
+
+    return await _finish_session(client, session["id"], messages)
+
+
+async def handle_trainer_leaderboard(request):
+    user = _authenticate(request)
+    rows = db.trainer_leaderboard(min_sessions=TRAINER.get("min_sessions_for_board", 3))
+    board = [
+        {
+            "place": i,
+            "user_id": r["agent_user_id"],
+            "full_name": r["full_name"],
+            "username": r["username"],
+            "sessions": r["sessions"],
+            "avg_score": int(r["avg_score"] or 0),
+            "best_score": r["best_score"],
+            "me": r["agent_user_id"] == user["id"],
+        }
+        for i, r in enumerate(rows, 1)
+    ]
+    return web.json_response({
+        "board": board,
+        "min_sessions": TRAINER.get("min_sessions_for_board", 3),
+        "history": [
+            {
+                "id": h["id"],
+                "score": h["score"],
+                "persona": (_persona(h["persona_id"]) or {}).get("name", h["persona_id"]),
+                "finished_at": h["finished_at"],
+            }
+            for h in db.list_trainer_sessions_for_agent(user["id"], limit=10)
+        ],
+    })
+
+
+async def handle_admin_trainings(request):
+    _authenticate_admin(request)
+    sessions = [
+        {
+            "id": t["id"],
+            "agent_name": t["agent_name"],
+            "agent_username": t["agent_username"],
+            "persona": (_persona(t["persona_id"]) or {}).get("name", t["persona_id"]),
+            "score": t["score"],
+            "scores": json.loads(t["scores"] or "{}"),
+            "verdict": t["verdict"],
+            "advice": json.loads(t["advice"] or "[]"),
+            "messages": json.loads(t["messages"] or "[]"),
+            "finished_at": t["finished_at"],
+        }
+        for t in db.list_all_trainer_sessions()
+    ]
+    return web.json_response({
+        "sessions": sessions,
+        "rubric": [{"id": r["id"], "label": r["label"], "weight": r["weight"]}
+                   for r in TRAINER.get("rubric", [])],
+    })
+
+
 async def handle_config(request):
     return web.json_response({
         "checklist": WEBAPP.get("checklist", []),
@@ -306,13 +578,16 @@ async def handle_start_training(request):
 
 
 def create_app(bot, bot_token: str, start_training_cb, admin_pin: str = None,
-               restore_agent_cb=None) -> web.Application:
+               restore_agent_cb=None, llm_client=None) -> web.Application:
     app = web.Application()
     app["bot"] = bot
     app["bot_token"] = bot_token
     app["start_training_cb"] = start_training_cb
     app["admin_pin"] = admin_pin
     app["restore_agent_cb"] = restore_agent_cb
+    # None, если ключа модели нет — тренажёр тогда честно говорит, что
+    # собеседник недоступен, остальные вкладки работают как работали.
+    app["llm"] = llm_client if llm_client is not None else llm.build_client()
     app.router.add_get("/", handle_index)
     app.router.add_get("/admin", handle_admin_page)
     app.router.add_post("/api/admin/verify", handle_admin_verify)
@@ -321,6 +596,12 @@ def create_app(bot, bot_token: str, start_training_cb, admin_pin: str = None,
     app.router.add_get("/api/admin/banned", handle_admin_banned)
     app.router.add_post("/api/admin/unban", handle_admin_unban)
     app.router.add_get("/api/admin/objects", handle_admin_objects)
+    app.router.add_get("/api/admin/trainings", handle_admin_trainings)
+    app.router.add_get("/api/trainer/config", handle_trainer_config)
+    app.router.add_get("/api/trainer/leaderboard", handle_trainer_leaderboard)
+    app.router.add_post("/api/trainer/start", handle_trainer_start)
+    app.router.add_post("/api/trainer/reply", handle_trainer_reply)
+    app.router.add_post("/api/trainer/finish", handle_trainer_finish)
     app.router.add_get("/api/config", handle_config)
     app.router.add_get("/api/counts", handle_counts)
     app.router.add_get("/api/finances", handle_finances)

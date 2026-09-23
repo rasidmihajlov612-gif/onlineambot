@@ -12,6 +12,14 @@ function initData() {
   return tg ? tg.initData : '';
 }
 
+function plural(n, one, few, many) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
+
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str == null ? '' : str;
@@ -297,12 +305,71 @@ async function renderFlats() {
   });
 }
 
+/* ---------- Тренировки ---------- */
+
+async function renderTrainings() {
+  const data = await adminGet('/api/admin/trainings');
+  if (!data) return sessionExpired();
+
+  if (!data.sessions.length) {
+    root.innerHTML = emptyCard('Тренировок пока нет — никто не дошёл до разбора.');
+    return;
+  }
+
+  const avg = Math.round(
+    data.sessions.reduce((sum, s) => sum + (s.score || 0), 0) / data.sessions.length
+  );
+
+  root.innerHTML = `
+    <div class="counts-row">
+      <div class="count-pill"><div class="n">${data.sessions.length}</div><div class="label">Разговоров</div></div>
+      <div class="count-pill"><div class="n">${avg}</div><div class="label">Средний балл</div></div>
+      <div class="count-pill"><div class="n">${new Set(data.sessions.map((s) => s.agent_name)).size}</div><div class="label">Агентов</div></div>
+    </div>
+    ${data.sessions.map((s) => trainingCard(s, data.rubric)).join('')}
+  `;
+}
+
+function trainingCard(s, rubric) {
+  const scoreRows = rubric.map((r) => {
+    const got = (s.scores || {})[r.id] || 0;
+    return `<div class="score-row ${got >= r.weight ? 'hit' : 'miss'}">
+      <span class="label">${escapeHtml(r.label)}</span>
+      <span class="pts">${got} / ${r.weight}</span>
+    </div>`;
+  }).join('');
+
+  const dialogue = (s.messages || []).map((m) => `
+    <div class="bubble ${m.role === 'owner' ? 'owner' : 'agent'}">${escapeHtml(m.text)}</div>
+  `).join('');
+
+  const advice = (s.advice || []).map((a) => `<li>${escapeHtml(a)}</li>`).join('');
+
+  return `
+    <div class="card">
+      <div class="card-head">
+        <div class="section-title">${agentLabel(s.agent_name, s.agent_username)}</div>
+        <div class="badge ${s.score >= 70 ? 'in_progress' : (s.score >= 40 ? 'pending' : 'rejected')}">${s.score} ${plural(s.score, 'балл', 'балла', 'баллов')}</div>
+      </div>
+      <div class="card-sub">Собеседник: ${escapeHtml(s.persona)} · ${fmtDate(s.finished_at)}</div>
+      ${s.verdict ? `<div class="section-hint" style="margin:12px 0 0;">${escapeHtml(s.verdict)}</div>` : ''}
+      ${scoreRows}
+      ${advice ? `<ul class="video-list">${advice}</ul>` : ''}
+      <details class="details-card">
+        <summary>Показать разговор целиком</summary>
+        <div class="details-body"><div class="chat">${dialogue}</div></div>
+      </details>
+    </div>
+  `;
+}
+
 /* ---------- Роутер вкладок ---------- */
 
 const TABS = {
   money: { title: 'Выплаты агентам', render: renderMoney },
   bans: { title: 'Баны', render: renderBans },
   flats: { title: 'Квартиры агентов', render: renderFlats },
+  training: { title: 'Тренировки агентов', render: renderTrainings },
 };
 
 async function openTab(name) {
