@@ -608,6 +608,11 @@ function renderDialog(root) {
     if (typing) typing.remove();
 
     if (!res.ok) {
+      // Реплика не дошла до модели — возвращаем её в поле ввода, чтобы
+      // человек не набирал заново, и убираем из истории диалога
+      trainer.messages.pop();
+      chat.lastElementChild.remove();
+      input.value = text;
       chat.insertAdjacentHTML('beforeend',
         `<div class="bubble owner typing">${escapeHtml(res.text || 'Собеседник не отвечает.')}</div>`);
       sendBtn.disabled = false;

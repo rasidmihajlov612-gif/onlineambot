@@ -345,15 +345,17 @@ async def handle_trainer_reply(request):
     messages = json.loads(session["messages"])
     messages.append({"role": "agent", "text": text[:1000]})
     turns = session["turns"] + 1
-    db.save_trainer_messages(session["id"], messages, turns)
     db.touch_active(user["id"])
 
     if turns >= TRAINER.get("max_turns", 10):
+        db.save_trainer_messages(session["id"], messages, turns)
         return await _finish_session(client, session["id"], messages)
 
     try:
         reply = await client.chat(_roleplay_messages(persona, messages), max_tokens=200)
     except llm.LLMUnavailable as e:
+        # Пишем реплику в базу только вместе с ответом собственника: иначе
+        # упавший запрос к модели съедал бы агенту попытку впустую.
         logging.warning("trainer roleplay failed: %s", e)
         _offline()
 
