@@ -7,10 +7,8 @@ Qwen — это новый класс здесь, а не переписыван
 Ключи и модель — только в .env (репозиторий публичный).
 """
 import asyncio
-import json
 import logging
 import os
-import re
 import ssl
 import time
 import uuid
@@ -26,10 +24,15 @@ class LLMUnavailable(Exception):
 
 
 class GigaChatClient:
-    def __init__(self, auth_key, scope, model, ca_bundle=None, verify_ssl=True):
+    def __init__(self, auth_key, scope, model, review_model=None,
+                 ca_bundle=None, verify_ssl=True):
         self._auth_key = auth_key
         self._scope = scope
         self._model = model
+        # Роль играет модель попроще (реплик много, они короткие), а разбор
+        # требует суждения — там по умолчанию модель посильнее. Вызовов
+        # разбора один на диалог, бесплатной квоты Max хватает с запасом.
+        self.review_model = review_model or model
         self._token = None
         self._token_expires = 0
         # Бесплатный тариф для физлиц генерирует текст в один поток, поэтому
@@ -66,14 +69,14 @@ class GigaChatClient:
         self._token_expires = data.get("expires_at", 0) / 1000 or time.time() + 1500
         return self._token
 
-    async def chat(self, messages, temperature=0.7, max_tokens=400):
+    async def chat(self, messages, temperature=0.7, max_tokens=400, model=None):
         async with self._lock:
             timeout = aiohttp.ClientTimeout(total=60)
             try:
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     token = await self._access_token(session)
                     payload = {
-                        "model": self._model,
+                        "model": model or self._model,
                         "messages": messages,
                         "temperature": temperature,
                         "max_tokens": max_tokens,
@@ -116,21 +119,56 @@ def build_client():
         auth_key=auth_key,
         scope=os.environ.get("GIGACHAT_SCOPE", "GIGACHAT_API_PERS"),
         model=os.environ.get("GIGACHAT_MODEL", "GigaChat-2"),
+        review_model=os.environ.get("GIGACHAT_REVIEW_MODEL", "GigaChat-2-Max"),
         ca_bundle=os.environ.get("GIGACHAT_CA_BUNDLE"),
         verify_ssl=os.environ.get("GIGACHAT_VERIFY_SSL", "1") != "0",
     )
 
 
-_JSON_BLOCK = re.compile(r"\{.*\}", re.S)
+VERDICT_WORDS = {
+    "да": 1.0, "yes": 1.0, "выполнено": 1.0, "полностью": 1.0,
+    "частично": 0.5, "наполовину": 0.5, "отчасти": 0.5,
+    "нет": 0.0, "no": 0.0, "не выполнено": 0.0, "-": 0.0,
+}
 
 
-def parse_json_reply(text):
-    """Модели любят обернуть JSON в ```json ... ``` или подписать его словами.
-    Вынимаем первый объект по фигурным скобкам."""
-    match = _JSON_BLOCK.search(text or "")
-    if not match:
-        raise LLMUnavailable(f"no json in reply: {(text or '')[:200]}")
-    try:
-        return json.loads(match.group(0))
-    except json.JSONDecodeError as e:
-        raise LLMUnavailable(f"bad json: {e}") from e
+def parse_review(text, valid_ids):
+    """Разбирает ответ наставника: `<id> | <цитата> | <да|частично|нет>`.
+
+    Строки вместо JSON: GigaChat Lite регулярно отдаёт невалидный JSON, и
+    падать из-за этого на глазах у агента нельзя.
+
+    Вердикт словом, а не баллом: с числами модель съезжает на свою шкалу
+    (ставила 4 из 25) и путает веса пунктов между собой. Доля от веса
+    считается в коде, модели остаётся только факт — сделал агент это или нет.
+    """
+    fractions, verdict, advice = {}, "", []
+
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip().strip("*`").strip()
+        if not line:
+            continue
+
+        upper = line.upper()
+        if upper.startswith("ИТОГ"):
+            verdict = line.split(":", 1)[-1].strip()
+            continue
+        if upper.startswith("СОВЕТ"):
+            tip = line.split(":", 1)[-1].strip()
+            if tip:
+                advice.append(tip)
+            continue
+
+        if "|" not in line:
+            continue
+        parts = [part.strip() for part in line.split("|")]
+        key = parts[0].strip("*`- ").lower()
+        if key not in valid_ids:
+            continue
+        word = parts[-1].strip(" .!»\"").lower()
+        if word in VERDICT_WORDS:
+            fractions[key] = VERDICT_WORDS[word]
+
+    if not fractions:
+        raise LLMUnavailable(f"no verdicts in reply: {(text or '')[:200]}")
+    return fractions, verdict, advice

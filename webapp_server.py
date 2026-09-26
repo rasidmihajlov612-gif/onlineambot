@@ -244,25 +244,20 @@ async def _review(client, messages):
     prompt = TRAINER["review_prompt"].format(
         rubric=_rubric_for_prompt(), dialogue=_dialogue_for_prompt(messages)
     )
+    rubric = TRAINER.get("rubric", [])
     raw = await client.chat(
-        [{"role": "user", "content": prompt}], temperature=0.2, max_tokens=700
+        [{"role": "user", "content": prompt}], temperature=0.2, max_tokens=700,
+        model=getattr(client, "review_model", None),
     )
-    data = llm.parse_json_reply(raw)
+    fractions, verdict, advice = llm.parse_review(raw, {r["id"] for r in rubric})
 
     scores, total = {}, 0
-    for r in TRAINER.get("rubric", []):
-        try:
-            value = int(data.get("scores", {}).get(r["id"], 0))
-        except (TypeError, ValueError):
-            value = 0
-        value = max(0, min(value, r["weight"]))
+    for r in rubric:
+        value = round(r["weight"] * fractions.get(r["id"], 0))
         scores[r["id"]] = value
         total += value
 
-    advice = data.get("advice") or []
-    if isinstance(advice, str):
-        advice = [advice]
-    return total, scores, str(data.get("verdict", ""))[:500], [str(a)[:500] for a in advice[:3]]
+    return total, scores, verdict[:500], [a[:500] for a in advice[:3]]
 
 
 def _session_or_404(request, user_id, body):
